@@ -13,11 +13,12 @@ class AncsChannel {
 
   final StreamController<Map<String, dynamic>> _controller =
       StreamController<Map<String, dynamic>>.broadcast();
+  StreamSubscription<dynamic>? _eventSub;
 
   Stream<Map<String, dynamic>> get events => _controller.stream;
 
   AncsChannel() {
-    _eventChannel.receiveBroadcastStream().listen(
+    _eventSub = _eventChannel.receiveBroadcastStream().listen(
       (data) {
         if (data is Map<String, dynamic>) {
           _controller.add(data);
@@ -34,6 +35,7 @@ class AncsChannel {
       (await _methodChannel.invokeMethod('stop')) as bool;
 
   void dispose() {
+    _eventSub?.cancel();
     _controller.close();
   }
 }

@@ -107,9 +107,6 @@ final class NotificationForwarder: NSObject {
     ///   - id: Unique notification identifier (used for dismiss/reply routing).
     ///   - replyChoices: Optional list of predefined reply strings.
     func forward(appName: String, title: String, body: String, id: String, replyChoices: [String] = []) {
-        // Re-register the BLE handler in case GattClient was re-created after a reconnect.
-        registerNotificationActionHandler()
-
         let wearNotif = WearNotification(
             notifId: id,
             appName: appName,
@@ -208,13 +205,6 @@ final class NotificationForwarder: NSObject {
         let timestampMs = defaults.double(forKey: NotificationBridge.UserDefaultsKey.timestampMs)
         let replyChoices = defaults.stringArray(forKey: NotificationBridge.UserDefaultsKey.replyChoices) ?? []
 
-        // Clear the pending flag and all associated keys immediately
-        // to avoid re-processing on the next poll cycle.
-        clearPendingNotification(defaults)
-
-        // Re-register the BLE handler in case GattClient was re-created.
-        registerNotificationActionHandler()
-
         // Build and send the Notification proto to the watch.
         let wearNotif = WearNotification(
             notifId: notifId,
@@ -226,6 +216,12 @@ final class NotificationForwarder: NSObject {
         )
         let payload = ProtoCodec.encodeWearNotification(wearNotif)
         ble.gatt?.write(payload, to: WearLinkUUID.notification)
+
+        // Clear the pending flag and all associated keys only AFTER the BLE
+        // write has been issued, so a write failure does not lose the data.
+        // If the write fails, the data remains in UserDefaults and will be
+        // picked up on the next poll cycle.
+        clearPendingNotification(defaults)
     }
 
     /// Removes all pending notification keys from the shared UserDefaults.
@@ -270,9 +266,16 @@ final class NotificationForwarder: NSObject {
 /// posts a Darwin notification. Extracts the NotificationForwarder instance
 /// from the observer pointer and dispatches the signal to the main actor.
 ///
-/// The closure has no captures, so it is convertible to `CFNotificationCallback`
-/// (`@convention(c)`).
-private let darwinNotificationCallback: CFNotificationCallback = { _, observer, _, _, _ in
+/// Must be a `@convention(c)` global function (not a closure variable) so that
+/// Swift can produce a stable C function pointer for CFNotificationCenter.
+@convention(c)
+private func darwinNotificationCallback(
+    _ center: CFNotificationCenter?,
+    _ observer: UnsafeMutableRawPointer?,
+    _ name: CFString?,
+    _ object: UnsafePointer<CFString>?,
+    _ userInfo: CFDictionary?
+) {
     guard let observer else { return }
     let forwarder = Unmanaged<NotificationForwarder>.fromOpaque(observer).takeUnretainedValue()
     Task { @MainActor in

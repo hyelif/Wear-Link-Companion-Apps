@@ -37,10 +37,10 @@ struct DevicesListView: View {
 
                     // Quick feature cards
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        FeatureCard(icon: "heart.fill", title: "Health", color: .red, destination: AnyView(HealthView()))
-                        FeatureCard(icon: "phone.fill", title: "Calls", color: .green, destination: AnyView(CallView()))
-                        FeatureCard(icon: "bell.fill", title: "Notifications", color: .orange, destination: AnyView(NotificationView()))
-                        FeatureCard(icon: "music.note", title: "Music", color: .purple, destination: AnyView(MusicView()))
+                        FeatureCard(icon: "heart.fill", title: "Health", color: .red) { HealthView() }
+                        FeatureCard(icon: "phone.fill", title: "Calls", color: .green) { CallView() }
+                        FeatureCard(icon: "bell.fill", title: "Notifications", color: .orange) { NotificationView() }
+                        FeatureCard(icon: "music.note", title: "Music", color: .purple) { MusicView() }
                     }
 
                     // Setup tip card
@@ -90,14 +90,14 @@ struct DevicesListView: View {
 
 // MARK: - Feature Card
 
-struct FeatureCard: View {
+struct FeatureCard<Destination: View>: View {
     let icon: String
     let title: String
     let color: Color
-    let destination: AnyView
+    @ViewBuilder let destination: () -> Destination
 
     var body: some View {
-        NavigationLink(destination: destination) {
+        NavigationLink(destination: destination()) {
             VStack(spacing: 12) {
                 Image(systemName: icon)
                     .font(.title2)

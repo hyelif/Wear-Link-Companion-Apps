@@ -40,7 +40,7 @@ kotlin {
 
 dependencies {
     // Wear OS Health Services — passive + active health data collection.
-    implementation("androidx.health:health-services-client:1.1.0-rc02")
+    implementation("androidx.health:health-services-client:1.1.0")
     // Periodic background sync that respects Doze.
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     // Coroutines (used by platform channels + native collectors).

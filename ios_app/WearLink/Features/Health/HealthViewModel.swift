@@ -8,7 +8,7 @@ import HealthKit
 final class HealthViewModel {
     private let ble: BLEManager
     private let store = HKHealthStore()
-    private var pending: [HKSample] = []
+    @ObservationIgnored private var pending: [HKSample] = []
 
     /// Whether HealthKit authorization has been granted.
     private(set) var isAuthorized = false
@@ -26,7 +26,7 @@ final class HealthViewModel {
         guard HKHealthStore.isHealthDataAvailable() else {
             print("[HealthViewModel] HealthKit not available on this device")
             isAuthorized = false
-            return
+            throw HealthError.healthKitUnavailable
         }
 
         // Request write for: heart rate, steps, SpO2, HRV, sleep.
@@ -45,6 +45,18 @@ final class HealthViewModel {
             print("[HealthViewModel] Authorization failed: \(error.localizedDescription)")
             isAuthorized = false
             throw error
+        }
+    }
+}
+
+/// Errors originating from HealthKit operations in HealthViewModel.
+enum HealthError: LocalizedError {
+    case healthKitUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .healthKitUnavailable:
+            return "HealthKit is not available on this device."
         }
     }
 }

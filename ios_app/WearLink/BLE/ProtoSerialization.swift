@@ -35,7 +35,7 @@ enum ProtoCodec {
         while offset < data.count {
             let byte = data[offset]
             offset += 1
-            if shift >= 64 { return nil } // overflow
+            if shift > 63 { return nil } // overflow
             result |= UInt64(byte & 0x7F) << shift
             shift += 7
             if byte & 0x80 == 0 {
@@ -97,7 +97,9 @@ enum ProtoCodec {
     }
 
     static func decodeLengthDelimited(from data: Data, offset: inout Int) -> Data? {
-        guard let len = decodeVarint(from: data, offset: &offset) else { return nil }
+        guard let len = decodeVarint(from: data, offset: &offset),
+              len <= UInt64(Int.max)
+        else { return nil }
         let count = Int(len)
         guard offset + count <= data.count else { return nil }
         let slice = data[offset ..< offset + count]
@@ -177,14 +179,19 @@ enum ProtoCodec {
     static func skipField(wireType: UInt8, data: Data, offset: inout Int) {
         switch wireType {
         case 0: // varint
-            var _ = try? decodeVarint(from: data, offset: &offset)
+            _ = decodeVarint(from: data, offset: &offset)
         case 1: // 64-bit
-            offset = min(offset + 8, data.count)
+            guard offset + 8 <= data.count else { return }
+            offset += 8
         case 2: // length-delimited
-            guard let len = try? decodeVarint(from: data, offset: &offset) else { return }
-            offset = min(offset + Int(len), data.count)
+            guard let len = decodeVarint(from: data, offset: &offset),
+                  len <= UInt64(Int.max),
+                  offset + Int(len) <= data.count
+            else { return }
+            offset += Int(len)
         case 5: // 32-bit
-            offset = min(offset + 4, data.count)
+            guard offset + 4 <= data.count else { return }
+            offset += 4
         default:
             break
         }
@@ -461,19 +468,19 @@ extension ProtoCodec {
                 intervalMs = UInt32(v)
             case (3, 0):
                 // Unpacked varint (non-packed repeated enum)
-                guard let raw = decodeVarint(from: data, offset: &offset),
-                      let t = HealthSample.`Type`(rawValue: UInt32(raw))
-                else { return nil }
-                types.append(t)
+                guard let raw = decodeVarint(from: data, offset: &offset) else { return nil }
+                if let t = HealthSample.`Type`(rawValue: UInt32(raw)) {
+                    types.append(t)
+                }
             case (3, 2):
                 // Packed repeated enum
                 guard let packed = decodeLengthDelimited(from: data, offset: &offset) else { return nil }
                 var packedOffset = 0
                 while packedOffset < packed.count {
-                    guard let raw = ProtoCodec.decodeVarint(from: packed, offset: &packedOffset),
-                          let t = HealthSample.`Type`(rawValue: UInt32(raw))
-                    else { break }
-                    types.append(t)
+                    guard let raw = ProtoCodec.decodeVarint(from: packed, offset: &packedOffset) else { break }
+                    if let t = HealthSample.`Type`(rawValue: UInt32(raw)) {
+                        types.append(t)
+                    }
                 }
             default:
                 skipField(wireType: wireType, data: data, offset: &offset)

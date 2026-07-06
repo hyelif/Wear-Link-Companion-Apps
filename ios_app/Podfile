@@ -6,25 +6,11 @@ platform :ios, '17.0'
 use_frameworks!
 
 target 'WearLink' do
-  # Wire protocol decode (generated Swift protobuf lives in Sources, not a pod).
-  pod 'SwiftProtobuf', '~> 1.27'
-  # Optional payload compression for health batches.
-  pod 'Zip', '~> 2.1'
 end
 
 target 'NotificationServiceExtension' do
-  pod 'SwiftProtobuf', '~> 1.27'
 end
 
 target 'WearLinkTests' do
   inherit! :search_paths
-  pod 'SwiftProtobuf', '~> 1.27'
-end
-
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'
-    end
-  end
 end

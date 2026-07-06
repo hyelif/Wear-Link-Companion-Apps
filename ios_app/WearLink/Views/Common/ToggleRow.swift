@@ -27,6 +27,7 @@ struct ToggleRow: View {
             Toggle("", isOn: $isOn)
                 .labelsHidden()
                 .tint(.green)
+                .accessibilityLabel(title)
         }
         .padding(.vertical, 4)
     }

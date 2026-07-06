@@ -7,6 +7,19 @@ struct DeviceCardView: View {
     let isConnected: Bool
     let isCharging: Bool
 
+    private var batteryIconName: String {
+        if isCharging {
+            return "battery.100.bolt"
+        }
+        switch batteryLevel {
+        case 76...100: return "battery.100"
+        case 51...75:  return "battery.75"
+        case 26...50:  return "battery.50"
+        case 1...25:   return "battery.25"
+        default:       return "battery.0"
+        }
+    }
+
     var body: some View {
         HStack(spacing: 16) {
             DeviceIconView(size: 60)
@@ -25,12 +38,12 @@ struct DeviceCardView: View {
 
             VStack(alignment: .trailing, spacing: 4) {
                 HStack(spacing: 4) {
-                    Image(systemName: isCharging ? "battery.100.bolt" : "battery.75")
+                    Image(systemName: batteryIconName)
                         .font(.caption)
-                        .foregroundStyle(batteryLevel > 20 ? .green : .red)
+                        .foregroundStyle(batteryLevel < 20 ? .red : .green)
                     Text("\(batteryLevel)%")
                         .font(.caption)
-                        .foregroundStyle(batteryLevel > 20 ? .green : .red)
+                        .foregroundStyle(batteryLevel < 20 ? .red : .green)
                         .monospacedDigit()
                 }
 

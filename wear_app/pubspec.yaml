@@ -5,17 +5,16 @@ version: 0.1.0+1
 
 environment:
   sdk: ^3.12.2
+  flutter: ">=3.22.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
-
   # Reactive state — signals_dart (project-wide state mgmt choice)
-  signals: ^6.0.0
+  signals: ^7.1.0
 
   # Shared wire protocol (generated from ../protocol/proto/*.proto)
-  protobuf: ^3.1.0
+  protobuf: ^6.0.0
   fixnum: ^1.1.1
 
 dev_dependencies:
@@ -23,7 +22,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   # protoc dart plugin output is committed; plugin listed for toolchain docs only
-  protoc_plugin: ^21.1.0
+  protoc_plugin: ^25.0.0
   integration_test:
     sdk: flutter
 

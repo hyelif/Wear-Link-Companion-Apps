@@ -2,11 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- HealthKit read+write of data received from watch -->
-    <key>com.apple.developer.healthkit</key>
-    <true/>
-    <key>com.apple.developer.healthkit.access</key>
-    <array/>
-    <!-- Background BLE central is granted via UIBackgroundModes, no entitlement needed -->
+	<!-- HealthKit read+write of data received from watch -->
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+	<key>com.apple.developer.healthkit.access</key>
+	<array/>
+	<!-- App group shared with NotificationServiceExtension for BLE relay -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.wearlink.notification</string>
+	</array>
+	<!-- Push notification environment (production) -->
+	<key>aps-environment</key>
+	<string>production</string>
+	<!-- Background BLE central is granted via UIBackgroundModes, no entitlement needed -->
 </dict>
 </plist>

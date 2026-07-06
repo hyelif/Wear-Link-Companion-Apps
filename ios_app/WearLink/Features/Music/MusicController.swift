@@ -2,6 +2,14 @@ import Foundation
 import MediaPlayer
 import UIKit
 
+// MARK: - Reconnection notification
+
+extension Notification.Name {
+    /// Posted when BLE establishes a new GATT connection, so feature
+    /// controllers can re-register their inbound payload handlers.
+    static let bleDidReconnect = Notification.Name("com.wearlink.ble.didReconnect")
+}
+
 /// Publishes now-playing info to the watch and dispatches transport commands
 /// received from the watch to `MPRemoteCommandCenter`.
 ///
@@ -28,6 +36,15 @@ final class MusicController: NSObject {
     private let ble: BLEManager
     private var updateTimer: Timer?
     private var lastPositionUpdate: Date?
+
+    /// Weak reference to the `GattClient` we last registered the command
+    /// handler on. Used to detect reconnections and avoid redundant or
+    /// orphaned registrations.
+    private weak var registeredGatt: AnyObject?
+
+    /// Opaque handler references returned by `MPRemoteCommand.addTarget(handler:)`,
+    /// retained so they can be removed in `deinit`.
+    private var remoteCommandHandlers: [Any] = []
 
     private(set) var nowPlaying = MusicNowPlaying(
         title: "", artist: "", album: "", art: Data(),
@@ -56,10 +73,12 @@ final class MusicController: NSObject {
         super.init()
         setupRemoteCommands()
         registerCommandHandler()
+        observeReconnection()
     }
 
     deinit {
         updateTimer?.invalidate()
+        removeRemoteCommands()
     }
 
     // MARK: - MPRemoteCommandCenter setup
@@ -70,42 +89,105 @@ final class MusicController: NSObject {
     private func setupRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
 
-        center.playCommand.addTarget { [weak self] _ in
-            self?.onPlay?()
+        let playHandler = center.playCommand.addTarget { [weak self] _ in
+            guard let self else { return .noActionableNow }
+            self.onPlay?()
             return .success
         }
+        remoteCommandHandlers.append(playHandler)
 
-        center.pauseCommand.addTarget { [weak self] _ in
-            self?.onPause?()
+        let pauseHandler = center.pauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .noActionableNow }
+            self.onPause?()
             return .success
         }
+        remoteCommandHandlers.append(pauseHandler)
 
-        center.nextTrackCommand.addTarget { [weak self] _ in
-            self?.onNextTrack?()
+        let toggleHandler = center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .noActionableNow }
+            if self.nowPlaying.playing {
+                self.onPause?()
+            } else {
+                self.onPlay?()
+            }
             return .success
         }
+        remoteCommandHandlers.append(toggleHandler)
 
-        center.previousTrackCommand.addTarget { [weak self] _ in
-            self?.onPreviousTrack?()
+        let nextHandler = center.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self else { return .noActionableNow }
+            self.onNextTrack?()
             return .success
         }
+        remoteCommandHandlers.append(nextHandler)
 
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+        let prevHandler = center.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self else { return .noActionableNow }
+            self.onPreviousTrack?()
+            return .success
+        }
+        remoteCommandHandlers.append(prevHandler)
+
+        let seekHandler = center.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let self,
                   let positionEvent = event as? MPChangePlaybackPositionCommandEvent
             else { return .commandFailed }
             self.onSeek?(positionEvent.positionTime)
             return .success
         }
+        remoteCommandHandlers.append(seekHandler)
+    }
+
+    /// Removes all registered `MPRemoteCommandCenter` handlers.
+    /// Called from `deinit` to prevent orphaned handler references.
+    private func removeRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+        for handler in remoteCommandHandlers {
+            // Each handler is an opaque MPRemoteCommandHandler object returned
+            // by addTarget(handler:). Passing it to removeTarget(_:) unregisters
+            // only that specific block-based handler.
+            center.playCommand.removeTarget(handler)
+            center.pauseCommand.removeTarget(handler)
+            center.togglePlayPauseCommand.removeTarget(handler)
+            center.nextTrackCommand.removeTarget(handler)
+            center.previousTrackCommand.removeTarget(handler)
+            center.changePlaybackPositionCommand.removeTarget(handler)
+        }
+        remoteCommandHandlers.removeAll()
+    }
+
+    // MARK: - Reconnection observation
+
+    /// Registers for `Notification.Name.bleDidReconnect` so the BLE command
+    /// handler is re-registered on the new `GattClient` after a reconnect.
+    private func observeReconnection() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleReconnection),
+            name: .bleDidReconnect,
+            object: nil
+        )
+    }
+
+    @objc private func handleReconnection() {
+        registerCommandHandler()
     }
 
     // MARK: - BLE command handler
 
     /// Registers the inbound `MusicCommand` handler on the current `GattClient`.
-    /// Safe to call when `gatt` is nil — the handler is set when available.
-    /// Call again after a reconnection to re-register on the new `GattClient`.
+    ///
+    /// If the `GattClient` instance has changed since the last call (e.g. after
+    /// a disconnect-reconnect cycle), the old handler is effectively orphaned
+    /// and a new one is registered on the current client. If `gatt` is `nil`
+    /// the call is a no-op — the handler will be set when `handleReconnection()`
+    /// fires or when `registerCommandHandler()` is called again.
     private func registerCommandHandler() {
-        ble.gatt?.onPayload[WearLinkUUID.musicCommand] = { [weak self] data in
+        guard let gatt = ble.gatt else { return }
+        // Avoid redundant registration on the same GattClient instance.
+        guard registeredGatt !== gatt else { return }
+
+        gatt.onPayload[WearLinkUUID.musicCommand] = { [weak self] data in
             guard let self,
                   let command = ProtoCodec.decodeMusicCommand(from: data)
             else { return }
@@ -113,11 +195,12 @@ final class MusicController: NSObject {
                 self.dispatchCommand(command)
             }
         }
+        registeredGatt = gatt
     }
 
     /// Maps a decoded `MusicCommand` from the watch to the appropriate
     /// command callback.
-    private func dispatchCommand(_ command: MusicCommand) {
+    func dispatchCommand(_ command: MusicCommand) {
         switch command.command {
         case .play:
             onPlay?()
@@ -131,7 +214,8 @@ final class MusicController: NSObject {
             // Watch sends position in milliseconds; convert to seconds.
             onSeek?(command.positionMs / 1000.0)
         case .setVolume:
-            onChangeVolume?(command.volume)
+            // Clamp volume to valid range [0, 1].
+            onChangeVolume?(min(max(command.volume, 0), 1))
         case .cmdUnspecified:
             break
         }
@@ -150,7 +234,8 @@ final class MusicController: NSObject {
     ///   - duration: Total track duration in seconds.
     ///   - position: Current playback position in seconds.
     ///   - playing: Whether the track is currently playing.
-    ///   - volume: Current volume level (0.0 - 1.0).
+    ///   - volume: Current volume level (0.0 - 1.0). When `nil`, falls back to
+    ///     the system output volume from `AVAudioSession`.
     func publishNowPlaying(
         title: String,
         artist: String,
@@ -159,11 +244,9 @@ final class MusicController: NSObject {
         duration: TimeInterval,
         position: TimeInterval,
         playing: Bool,
-        volume: Float = 0
+        volume: Float? = nil
     ) {
-        // Re-register the BLE handler in case the GattClient changed
-        // (e.g. after a reconnect).
-        registerCommandHandler()
+        let effectiveVolume = volume ?? AVAudioSession.sharedInstance().outputVolume
 
         let info = MusicNowPlaying(
             title: title,
@@ -173,7 +256,7 @@ final class MusicController: NSObject {
             durationMs: duration * 1000,
             positionMs: position * 1000,
             playing: playing,
-            volume: volume
+            volume: effectiveVolume
         )
 
         nowPlaying = info

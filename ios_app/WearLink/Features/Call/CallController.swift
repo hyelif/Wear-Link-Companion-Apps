@@ -1,6 +1,5 @@
 import Foundation
 import CallKit
-import Contacts
 
 /// Detects incoming calls (CallKit) and forwards caller info to the watch
 /// via `callEvent`. Receives `callAction` (accept/reject/mute/end) from the
@@ -15,7 +14,6 @@ final class CallController: NSObject {
     private let provider: CXProvider
     private let controller = CXCallController()
     private let observer = CXCallObserver()
-    private let contactStore = CNContactStore()
 
     /// Tracks active call UUIDs to avoid re-sending events for the same call.
     private(set) var activeCallIDs = Set<String>()
@@ -27,7 +25,7 @@ final class CallController: NSObject {
     init(ble: BLEManager) {
         self.ble = ble
 
-        let cfg = CXProviderConfiguration()
+        let cfg = CXProviderConfiguration(localizedName: "WearLink")
         cfg.supportsVideo = false
         cfg.maximumCallGroups = 1
         cfg.maximumCallsPerCallGroup = 1
@@ -38,21 +36,10 @@ final class CallController: NSObject {
 
         provider.setDelegate(self, queue: nil)
         observer.setDelegate(self, queue: nil)
-
-        // Register the BLE handler for incoming CallAction from the watch.
-        // If GattClient is not yet available, the handler is set once it connects.
-        registerCallActionHandler()
     }
 
-    /// Registers (or re-registers) the CallAction handler on the current GattClient.
-    /// Safe to call even when gatt is nil — the handler is set when available.
-    private func registerCallActionHandler() {
-        ble.gatt?.onPayload[WearLinkUUID.callAction] = { [weak self] data in
-            guard let self, let action = ProtoCodec.decodeCallAction(from: data) else { return }
-            Task { @MainActor in
-                self.applyAction(action)
-            }
-        }
+    deinit {
+        provider.invalidate()
     }
 }
 
@@ -70,20 +57,14 @@ extension CallController: CXCallObserverDelegate {
             guard !self.activeCallIDs.contains(callId) else { return }
             self.activeCallIDs.insert(callId)
 
-            // Ensure the BLE handler is registered (gatt may have connected after init).
-            self.registerCallActionHandler()
-
-            // Resolve caller name from contacts.
-            let name = await self.contactName(for: call) ?? "Unknown"
-
             // Update observable state for the UI.
-            self.incomingCallerName = name
+            self.incomingCallerName = "Unknown"
             self.hasIncomingCall = true
 
             // Build and send the CallEvent proto to the watch.
             let event = CallEvent(
                 callId: callId,
-                caller: name,
+                caller: "Unknown",
                 hasVideo: false,
                 timestampMs: UInt64(Date().timeIntervalSince1970 * 1000)
             )
@@ -91,43 +72,6 @@ extension CallController: CXCallObserverDelegate {
             let payload = ProtoCodec.encodeCallEvent(event)
             self.ble.gatt?.write(payload, to: WearLinkUUID.callEvent)
         }
-    }
-}
-
-// MARK: - Contact resolution
-
-extension CallController {
-    /// Attempts to resolve the caller's contact name from the system address book.
-    /// Returns nil if the caller handle is unavailable or access is denied.
-    private func contactName(for call: CXCall) async -> String? {
-        let status = CNContactStore.authorizationStatus(for: .contacts)
-
-        switch status {
-        case .notDetermined:
-            do {
-                let granted = try await contactStore.requestAccess(for: .contacts)
-                guard granted else { return nil }
-            } catch {
-                return nil
-            }
-        case .authorized:
-            break
-        case .denied, .restricted:
-            return nil
-        @unknown default:
-            return nil
-        }
-
-        // CXCall does not expose the remote handle (phone number) through
-        // its public API. To obtain the caller number, the app would need to
-        // report the call via CXProvider.reportNewIncomingCall() and capture
-        // the CXCallUpdate handle, or listen for the underlying telephony
-        // notification. Without the handle, CNContactStore lookup is not
-        // possible here.
-        //
-        // Production approach: use CXProvider to report the call and extract
-        // the handle from CXCallUpdate, then look up the contact name.
-        return nil
     }
 }
 
@@ -176,6 +120,8 @@ extension CallController: CXProviderDelegate {
     nonisolated func providerDidReset(_ provider: CXProvider) {
         Task { @MainActor in
             self.activeCallIDs.removeAll()
+            self.hasIncomingCall = false
+            self.incomingCallerName = nil
         }
     }
 

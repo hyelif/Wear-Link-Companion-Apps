@@ -42,15 +42,19 @@ final class AppContainer {
         // These fire when the watch sends data on the corresponding
         // characteristic; they decode the proto and dispatch to the
         // appropriate feature controller.
-        ble.gatt?.onPayload[WearLinkUUID.callAction] = { [weak self] data in
+        guard let gatt = ble.gatt else {
+            assertionFailure("AppContainer.start: gatt not ready — onPayload handlers not registered")
+            return
+        }
+        gatt.onPayload[WearLinkUUID.callAction] = { [weak self] data in
             guard let self, let action = ProtoCodec.decodeCallAction(from: data) else { return }
             self.call.applyAction(action)
         }
-        ble.gatt?.onPayload[WearLinkUUID.notificationAction] = { [weak self] data in
+        gatt.onPayload[WearLinkUUID.notificationAction] = { [weak self] data in
             guard let self, let action = ProtoCodec.decodeNotifAction(from: data) else { return }
             self.notification.handleAction(action)
         }
-        ble.gatt?.onPayload[WearLinkUUID.musicCommand] = { [weak self] data in
+        gatt.onPayload[WearLinkUUID.musicCommand] = { [weak self] data in
             guard let self, let command = ProtoCodec.decodeMusicCommand(from: data) else { return }
             self.music.dispatchCommand(command)
         }
@@ -61,7 +65,7 @@ final class AppContainer {
         do {
             try await health.requestAuthorization()
         } catch {
-            print("[AppContainer] HealthKit authorization failed (non-fatal): \(error.localizedDescription)")
+            print("[AppContainer] HealthKit authorization failed (non-fatal): \(error)")
         }
 
         // Begin BLE scanning for the watch.

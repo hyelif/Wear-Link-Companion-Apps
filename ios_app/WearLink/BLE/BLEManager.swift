@@ -73,71 +73,68 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         }
     }
 
-    nonisolated func centralManagerDidUpdateState(_ c: CBCentralManager) {
-        guard c.state == .poweredOn else { return }
-        Task { @MainActor in
-            self.startScanning()
+    func centralManagerDidUpdateState(_ c: CBCentralManager) {
+        if c.state == .poweredOn {
+            startScanning()
+        } else {
+            state = .poweredOff
+            scanTimer?.invalidate()
+            restTimer?.invalidate()
+            heartbeatTimer?.invalidate()
+            scanTimer = nil
+            restTimer = nil
+            heartbeatTimer = nil
+            gatt = nil
         }
     }
 
-    nonisolated func centralManager(_ central: CBCentralManager,
+    func centralManager(_ central: CBCentralManager,
                         didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        Task { @MainActor in
-            central.stopScan()
-            self.scanTimer?.invalidate(); self.restTimer?.invalidate()
-            self.state = .connecting
-            peripheral.delegate = self
-            central.connect(peripheral, options: nil)
-        }
+        central.stopScan()
+        scanTimer?.invalidate(); restTimer?.invalidate()
+        state = .connecting
+        central.connect(peripheral, options: nil)
     }
 
-    nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        Task { @MainActor in
-            let client = GattClient(peripheral: peripheral)
-            peripheral.delegate = client   // GattClient receives discovery + value callbacks
-            // Echo inbound LinkControl frames back as acks (heartbeat echo).
-            client.onLinkControl = { [weak self] frame in
-                // Echo the same seq back as ACK — watch confirms liveness.
-                self?.gatt?.write(frame.payload, to: WearLinkUUID.linkControl)
+    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        let client = GattClient(peripheral: peripheral)
+        // Echo inbound LinkControl frames back as acks (heartbeat echo).
+        client.onLinkControl = { [weak self] frame in
+            Task { @MainActor in
+                let seqData = withUnsafeBytes(of: frame.seq.bigEndian) { Data($0) }
+                self?.gatt?.write(seqData, to: WearLinkUUID.linkControl)
             }
-            // Register inbound payload handlers for feature characteristics
-            // that the watch writes to (callAction, notificationAction, musicCommand).
-            client.onPayload[WearLinkUUID.callAction] = { [weak self] data in
-                guard let self, let action = ProtoCodec.decodeCallAction(from: data) else { return }
-                Task { @MainActor in
-                    self.callController?.applyAction(action)
-                }
-            }
-            client.onPayload[WearLinkUUID.notificationAction] = { [weak self] data in
-                guard let self, let action = ProtoCodec.decodeNotifAction(from: data) else { return }
-                Task { @MainActor in
-                    self.notificationForwarder?.handleAction(action)
-                }
-            }
-            client.onPayload[WearLinkUUID.musicCommand] = { [weak self] data in
-                guard let self, let command = ProtoCodec.decodeMusicCommand(from: data) else { return }
-                Task { @MainActor in
-                    self.musicController?.dispatchCommand(command)
-                }
-            }
-            self.gatt = client
-            self.state = .connected
-            client.discoverServices()
-            self.startHeartbeat()
         }
+        // Register inbound payload handlers for feature characteristics
+        // that the watch writes to (callAction, notificationAction, musicCommand).
+        client.onPayload[WearLinkUUID.callAction] = { [weak self] data in
+            guard let self, let action = ProtoCodec.decodeCallAction(from: data) else { return }
+            self.callController?.applyAction(action)
+        }
+        client.onPayload[WearLinkUUID.notificationAction] = { [weak self] data in
+            guard let self, let action = ProtoCodec.decodeNotifAction(from: data) else { return }
+            self.notificationForwarder?.handleAction(action)
+        }
+        client.onPayload[WearLinkUUID.musicCommand] = { [weak self] data in
+            guard let self, let command = ProtoCodec.decodeMusicCommand(from: data) else { return }
+            self.musicController?.dispatchCommand(command)
+        }
+        self.gatt = client
+        self.state = .connected
+        peripheral.delegate = client
+        client.discoverServices()
+        self.startHeartbeat()
     }
 
-    nonisolated func centralManager(_ central: CBCentralManager,
+    func centralManager(_ central: CBCentralManager,
                         didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        Task { @MainActor in
-            self.heartbeatTimer?.invalidate()
-            self.heartbeatTimer = nil
-            self.gatt = nil
-            self.state = .disconnected(error)
-            // Re-enter scan cycle after a brief rest.
-            self.beginScanCycle()
-        }
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = nil
+        gatt = nil
+        state = .disconnected(error)
+        // Re-enter scan cycle after a brief rest.
+        beginScanCycle()
     }
 
     private func startHeartbeat() {
@@ -150,5 +147,3 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         }
     }
 }
-
-extension BLEManager: CBPeripheralDelegate {}

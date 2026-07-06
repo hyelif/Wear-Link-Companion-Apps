@@ -16,6 +16,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import java.util.Collections
 import java.util.UUID
 
 /// BLE peripheral (GATT server) + low-duty advertiser. Transport only:
@@ -30,22 +31,36 @@ class BlePeripheralService(private val context: Context) {
 
     var onConnState: ((ConnState) -> Unit)? = null
     var onFrame: ((UUID, ByteArray) -> Unit)? = null   // uuid, raw frame bytes (from phone write)
+    var onMtuChanged: ((Int) -> Unit)? = null           // surfaced MTU from central request
+    var onError: ((String) -> Unit)? = null              // start/operation failure feedback
 
     private val handler = Handler(Looper.getMainLooper())
     private var server: BluetoothGattServer? = null
     private var adapter: BluetoothAdapter? = null
     private var advertiser: android.bluetooth.le.BluetoothLeAdvertiser? = null
     private var connectedDevice: BluetoothDevice? = null
-    private val notifying = mutableSetOf<UUID>()
+    private val notifying = Collections.synchronizedSet(mutableSetOf<UUID>())
 
     @Volatile var connState = ConnState.DISCONNECTED
         private set
 
-    fun start() {
+    /** Start the GATT server. Returns false if Bluetooth is off or server creation fails. */
+    fun start(): Boolean {
         val mgr = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         adapter = mgr?.adapter
+        if (adapter?.isEnabled != true) {
+            val msg = "Bluetooth adapter is not enabled"
+            handler.post { onError?.invoke(msg) }
+            return false
+        }
         server = mgr?.openGattServer(context, gattCallback)
+        if (server == null) {
+            val msg = "Failed to open GATT server"
+            handler.post { onError?.invoke(msg) }
+            return false
+        }
         setupService()
+        return true
     }
 
     fun stop() {
@@ -93,8 +108,7 @@ class BlePeripheralService(private val context: Context) {
         )
         for (uuid in Uuids.all) {
             val props = propsFor(uuid)
-            val perms = BluetoothGattCharacteristic.PERMISSION_READ or
-                BluetoothGattCharacteristic.PERMISSION_WRITE
+            val perms = permsFor(uuid)
             val c = BluetoothGattCharacteristic(uuid, props, perms)
             // CCCD descriptor so central can subscribe to notify chars.
             if (props and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) {
@@ -118,6 +132,19 @@ class BlePeripheralService(private val context: Context) {
                 p or BluetoothGattCharacteristic.PROPERTY_NOTIFY
             else -> p
         }
+    }
+
+    /** Return permissions matching the characteristic's properties. */
+    private fun permsFor(uuid: UUID): Int {
+        val props = propsFor(uuid)
+        var perms = 0
+        if (props and BluetoothGattCharacteristic.PROPERTY_READ != 0) {
+            perms = perms or BluetoothGattCharacteristic.PERMISSION_READ
+        }
+        if (props and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) {
+            perms = perms or BluetoothGattCharacteristic.PERMISSION_WRITE
+        }
+        return perms
     }
 
     // ---- Outbound: watch -> phone via notify -----------------------------
@@ -153,7 +180,7 @@ class BlePeripheralService(private val context: Context) {
         }
 
         override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {
-            // Phone requested larger MTU. Surface to plugin if needed.
+            handler.post { onMtuChanged?.invoke(mtu) }
         }
 
         override fun onCharacteristicReadRequest(
@@ -161,12 +188,11 @@ class BlePeripheralService(private val context: Context) {
             characteristic: BluetoothGattCharacteristic
         ) {
             val gatt = server
-            // DeviceInfo is the only readable char with real content.
-            val resp: ByteArray = if (characteristic.uuid == Uuids.deviceInfo) {
-                // TODO Phase 1+: return encoded DeviceInfo proto.
-                "WearLink/0.1".toByteArray()
-            } else ByteArray(0)
-            gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, resp)
+            if (characteristic.uuid == Uuids.deviceInfo) {
+                gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, "WearLink/0.1".toByteArray())
+            } else {
+                gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_READ_NOT_PERMITTED, 0, null)
+            }
         }
 
         override fun onCharacteristicWriteRequest(
@@ -188,8 +214,8 @@ class BlePeripheralService(private val context: Context) {
             offset: Int, value: ByteArray
         ) {
             // CCCD enable/disable notify subscription.
-            if (descriptor.uuid.toString()
-                    .equals("00002902-0000-1000-8000-00805F9B34FB", ignoreCase = true)) {
+            val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
+            if (descriptor.uuid == cccdUuid) {
                 val charUuid = descriptor.characteristic?.uuid
                 if (charUuid != null) {
                     if (value.isNotEmpty() && (value[0].toInt() and 0x01) != 0) {

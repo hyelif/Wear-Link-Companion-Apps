@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleName</key>
     <string>WearLink</string>
     <key>CFBundleDisplayName</key>
@@ -27,8 +29,8 @@
     <array>
         <!-- CoreBluetooth central keeps working in background -->
         <string>bluetooth-central</string>
-        <!-- optional: keep audio session active for music control while backgrounded -->
-        <string>audio</string>
+        <!-- Remote notifications for call/notification relay from watch -->
+        <string>remote-notification</string>
     </array>
     <key>UIRequiredDeviceCapabilities</key>
     <array>

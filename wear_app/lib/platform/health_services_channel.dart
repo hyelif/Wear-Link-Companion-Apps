@@ -13,11 +13,12 @@ class HealthServicesChannel {
 
   final StreamController<Map<String, dynamic>> _controller =
       StreamController<Map<String, dynamic>>.broadcast();
+  StreamSubscription<dynamic>? _eventSub;
 
   Stream<Map<String, dynamic>> get events => _controller.stream;
 
   HealthServicesChannel() {
-    _eventChannel.receiveBroadcastStream().listen(
+    _eventSub = _eventChannel.receiveBroadcastStream().listen(
       (data) {
         if (data is Map<String, dynamic>) {
           _controller.add(data);
@@ -40,6 +41,7 @@ class HealthServicesChannel {
       (await _methodChannel.invokeMethod('stopActive')) as bool;
 
   void dispose() {
+    _eventSub?.cancel();
     _controller.close();
   }
 }

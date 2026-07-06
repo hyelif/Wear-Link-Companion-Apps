@@ -1,8 +1,11 @@
 package com.wearlink.app
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.SystemClock
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.MeasureCallback
 import androidx.health.services.client.MeasureClient
@@ -41,11 +44,19 @@ class HealthCollector(private val context: Context) {
 
     var onBatch: ((List<Sample>) -> Unit)? = null
 
-    private val executor = Executors.newSingleThreadExecutor()
+    @Volatile
+    private var executor = Executors.newSingleThreadExecutor()
+    @Volatile
+    private var running = false
     private var passiveClient: PassiveMonitoringClient? = null
     private var measureClient: MeasureClient? = null
     private val buffer = mutableListOf<Sample>()
     private var active = false
+
+    // Cache boot instant once at construction to avoid race condition between
+    // Instant.now() and SystemClock.elapsedRealtime().
+    private val bootInstant: Instant =
+        Instant.now().minus(Duration.ofMillis(SystemClock.elapsedRealtime()))
 
     // ---- Data types we monitor --------------------------------------------
 
@@ -63,6 +74,20 @@ class HealthCollector(private val context: Context) {
     // ---- Lifecycle --------------------------------------------------------
 
     fun start() {
+        // Check BODY_SENSORS permission before starting any monitoring.
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.BODY_SENSORS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w("HealthCollector", "BODY_SENSORS permission not granted, cannot start")
+            return
+        }
+
+        // Recreate executor if it was shut down by a previous stop() call.
+        if (executor.isShutdown) {
+            executor = Executors.newSingleThreadExecutor()
+        }
+
+        running = true
         val client = HealthServices.getClient(context)
         passiveClient = client.passiveMonitoringClient
         measureClient = client.measureClient
@@ -70,6 +95,7 @@ class HealthCollector(private val context: Context) {
     }
 
     fun stop() {
+        running = false
         unregisterPassive()
         stopActive()
         executor.shutdown()
@@ -79,8 +105,8 @@ class HealthCollector(private val context: Context) {
 
     private val passiveCallback = object : PassiveListenerCallback {
         override fun onNewDataPointsReceived(container: DataPointContainer) {
+            if (!running) return
             val samples = mutableListOf<Sample>()
-            val bootInstant = bootInstant()
 
             // Heart rate
             for (dp in container.getData(DataType.HEART_RATE_BPM)) {
@@ -110,6 +136,7 @@ class HealthCollector(private val context: Context) {
         }
 
         override fun onUserActivityInfoReceived(info: androidx.health.services.client.data.UserActivityInfo) {
+            if (!running) return
             val state = info.userActivityState
             val isAsleep = state == UserActivityState.USER_ACTIVITY_ASLEEP
             val sample = Sample("sleep", if (isAsleep) 1.0 else 0.0, info.stateChangeTime.toEpochMilli())
@@ -131,7 +158,15 @@ class HealthCollector(private val context: Context) {
 
     private fun unregisterPassive() {
         try {
-            passiveClient?.clearPassiveListenerCallbackAsync()
+            // Replace our callback with a no-op instead of calling
+            // clearPassiveListenerCallbackAsync(), which would remove ALL
+            // passive listeners registered by any component.
+            val noopConfig = PassiveListenerConfig.builder().build()
+            val noopCallback = object : PassiveListenerCallback {
+                override fun onNewDataPointsReceived(container: DataPointContainer) {}
+                override fun onUserActivityInfoReceived(info: androidx.health.services.client.data.UserActivityInfo) {}
+            }
+            passiveClient?.setPassiveListenerCallback(noopConfig, executor, noopCallback)
         } catch (_: Exception) {}
     }
 
@@ -140,8 +175,8 @@ class HealthCollector(private val context: Context) {
     private val measureCallback = object : MeasureCallback {
         override fun onAvailabilityChanged(type: DeltaDataType<*, *>, availability: androidx.health.services.client.data.Availability) {}
         override fun onDataReceived(container: DataPointContainer) {
+            if (!running) return
             val samples = mutableListOf<Sample>()
-            val bootInstant = bootInstant()
 
             for (dp in container.getData(DataType.HEART_RATE_BPM)) {
                 val sdp = dp as? SampleDataPoint<Double> ?: continue
@@ -185,9 +220,4 @@ class HealthCollector(private val context: Context) {
             onBatch?.invoke(batch)
         }
     }
-
-    // ---- Helpers ----------------------------------------------------------
-
-    private fun bootInstant(): Instant =
-        Instant.now().minus(Duration.ofMillis(SystemClock.elapsedRealtime()))
 }

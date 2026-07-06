@@ -20,4 +20,25 @@ struct DeviceSettings: Codable {
     var collectHealthData: Bool = true
     var showAlbumArt: Bool = false
     var watchFaceAlwaysOn: Bool = true
+
+    enum CodingKeys: String, CodingKey {
+        case autoConnect
+        case analytics
+        case enableNotifications
+        case bidirectionalSync
+        case collectHealthData
+        case showAlbumArt
+        case watchFaceAlwaysOn
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        autoConnect = try container.decodeIfPresent(Bool.self, forKey: .autoConnect) ?? true
+        analytics = try container.decodeIfPresent(Bool.self, forKey: .analytics) ?? true
+        enableNotifications = try container.decodeIfPresent(Bool.self, forKey: .enableNotifications) ?? true
+        bidirectionalSync = try container.decodeIfPresent(Bool.self, forKey: .bidirectionalSync) ?? false
+        collectHealthData = try container.decodeIfPresent(Bool.self, forKey: .collectHealthData) ?? true
+        showAlbumArt = try container.decodeIfPresent(Bool.self, forKey: .showAlbumArt) ?? false
+        watchFaceAlwaysOn = try container.decodeIfPresent(Bool.self, forKey: .watchFaceAlwaysOn) ?? true
+    }
 }
