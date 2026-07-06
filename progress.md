@@ -7,13 +7,14 @@ Last updated: 2026-07-06 (Wear OS build verified; iOS pending macOS)
 
 ---
 
-## Project Status: **Wear OS app builds + tests pass; iOS build needs macOS**
+## Project Status: **Phase 2 (Health) code complete; iOS CI fixed; APK verified**
 
 Verified locally (Linux host):
 - `flutter analyze` → **No issues found**
 - `flutter test` → **9/9 pass** (PacketCodec round-trip/CRC-8 0xF4/reassembly + widget boot smoke)
-- `flutter build apk --debug` → **success** (`build/app/outputs/flutter-apk/app-debug.apk`, 151 MB)
-  → proves Kotlin (GATT server + plugin + correct `BluetoothGattServerCallback` signatures) + Gradle + Wear OS manifest compile.
+- `flutter build apk --debug` → **success** (`build/app/outputs/flutter-apk/app-debug.apk`)
+  → proves Kotlin (GATT server + HealthCollector + plugins) + Gradle + Wear OS manifest compile.
+- Dart proto codegen → `wear_app/lib/gen/wearlink.pb.dart` (regenerated with CALORIES + DISTANCE_METERS)
 
 NOT verified locally (impossible on Linux):
 - iOS native app build (needs macOS + XcodeGen + CocoaPods + protoc). CI workflow `.github/workflows/build-ios.yml` is the verify path — push to `main` to run it and download the SideStore IPA artifact.
@@ -64,7 +65,11 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked by
 - [ ] Integration test on Wear OS device: `flutter test integration_test/app_test.dart -d <wear-os>` (harness added; no emulator on host)
 
 ### Phase 2 — Health data sync
-- [ ] Watch: `HealthCollector.kt` via Wear OS Health Services (passive + on-demand)
+- [x] Watch: `HealthCollector.kt` via Wear OS Health Services (passive HR/steps/calories/distance + sleep detection + active HR)
+- [x] Watch: `HealthServicesPlugin.kt` platform channel bridge
+- [x] Watch: `health_services_channel.dart` + `health_signal.dart` (signals_dart with BLE buffer)
+- [x] Watch: `health_screen.dart` UI (live HR, steps, calories, distance, sleep state)
+- [x] Proto: added CALORIES + DISTANCE_METERS types
 - [ ] Watch: batch + delta-compress + queue on disconnect
 - [ ] Watch: `Health Stream` notify + `Health Control` write (interval config)
 - [ ] iOS: receive, decode, dedupe, write to HealthKit (`Health/` + `Storage/HealthStore.swift`)
@@ -132,7 +137,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked by
 
 1. **Notification forwarding** — 3rd-party notifs blocked by iOS sandbox. Need user decision: relay server (opt-in) or placeholder-only?
 2. **Music control** — system media blocked via public API; private `MediaRemote` = App-Store rejection. Confirmed own-app scope.
-3. **Protobuf codegen** — Swift path wired in CI; Dart path not yet run (install `protoc_plugin`, run once).
+3. **SpO2 / HRV / sleep stages** — not available via Health Services 1.1.0-rc02. User may explore Samsung Health SDK bypass later.
 4. **iOS dev account** — NotificationServiceExtension requires its own App ID + entitlements; confirm account available. SideStore testing avoids account for unsigned builds.
 5. **On-device BLE verification** — Phase 1 not yet flashed/tested on iPhone 14 Pro + Galaxy Watch 7. First real milestone.
 6. **UUID strategy** — using Bluetooth SIG base (0000xxxx-...-00805F9B34FB) for dev; must switch to a random 128-bit base before any public release (SIG base is reserved).
@@ -144,3 +149,4 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked by
 - **2026-07-06** — Created `Software-Structure.md` + this tracker. Decisions locked (iOS native+CocoaPods, Wear Flutter+signals_dart, iOS=central/watch=peripheral). No code yet.
 - **2026-07-06** — Phase 0: rehomed Flutter project into `wear_app/` (renamed package `com.wearlink.app`, minSdk 30, watch feature + permissions, Health Services + WorkManager deps); scaffolded `ios_app/` (XcodeGen `project.yml`, Podfile SwiftProtobuf+Zip, Info.plist, entitlements, BLE core Swift, NotificationServiceExtension target, README); wrote shared `protocol/` (GATT.md, codec.md, wearlink.proto, README). Codegen tooling install + macOS build verification still pending.
 - **2026-07-06** — Build verification pass: fixed signals API (`debugLabel` not `name`, `watchSignal` from `signals_flutter`), added missing `dart:typed_data`/`services.dart` imports, fixed widget-test channel mock; fixed Health Services dep coordinate `androidx.health:health-services-client:1.1.0-rc02` (was wrong group `androidx.health.services`); fixed Kotlin `BluetoothGattServerCallback` signatures (added `requestId`, correct param order) + `sendResponse` + `BluetoothGatt` import. `flutter analyze` clean, `flutter test` 9/9, `flutter build apk --debug` → `app-debug.apk` (151 MB). Added integration-test harness (`integration_test/app_test.dart` + `test_driver/integration_test.dart`). iOS build still needs macOS — CI is its verify path.
+- **2026-07-06** — Phase 2 (Health): created `HealthCollector.kt` (passive HR/steps/calories/distance + sleep detection + active HR), `HealthServicesPlugin.kt`, `health_services_channel.dart`, `health_signal.dart`, `health_screen.dart`. Added `CALORIES` + `DISTANCE_METERS` to proto. Ran Dart proto codegen. Added `fixnum` dep. Registered plugin in `MainActivity`. CI fixes: test destination `name=iPhone 16,OS=18.5`, unsigned export uses manual IPA packaging (no signing). Podfile: added `WearLinkTests` with `SwiftProtobuf`. `flutter analyze` clean, `flutter test` 9/9, `flutter build apk --debug` OK.

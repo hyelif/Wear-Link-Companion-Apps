@@ -89,4 +89,4 @@ secrets/
 *.dSYM/
 
 # ---- Flutter iOS host leftovers (Wear OS app has no iOS target) ----
-**/ios/Flutter/.last_build_id
+**/ios/Flutter/.last_build_id*.aar

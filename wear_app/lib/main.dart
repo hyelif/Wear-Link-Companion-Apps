@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:signals/signals_flutter.dart';
 
 import 'package:wear_app/ble/gatt_client.dart';
+import 'package:wear_app/features/health/health_screen.dart';
 import 'package:wear_app/platform/ble_peripheral_channel.dart';
+import 'package:wear_app/platform/health_services_channel.dart';
 import 'package:wear_app/signals/ble_signal.dart';
+import 'package:wear_app/signals/health_signal.dart';
 
 late final BleSignal bleSignal;
 late final GattClient gatt;
+late final HealthSignal healthSignal;
 
 void main() {
   bleSignal = BleSignal();
@@ -21,6 +25,8 @@ void main() {
       });
     },
   );
+  healthSignal = HealthSignal(HealthServicesChannel());
+  healthSignal.start();
   runApp(const WearLinkApp());
 }
 
@@ -61,6 +67,16 @@ class ConnectionScreen extends StatelessWidget {
             Icon(icon, size: 48),
             const SizedBox(height: 8),
             Text(text, textAlign: TextAlign.center),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => HealthScreen(health: healthSignal),
+                ),
+              ),
+              child: const Text('Health'),
+            ),
           ],
         ),
       ),

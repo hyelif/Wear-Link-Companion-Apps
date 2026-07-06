@@ -46,6 +46,8 @@ message HealthSample {
     SPO2_PERCENT = 3;
     HRV_MS = 4;
     SLEEP = 5;               // value = sleep stage (0 awake,1 light,2 deep,3 rem)
+    CALORIES = 6;            // kcal
+    DISTANCE_METERS = 7;     // meters
   }
   Type type = 1;
   int64 timestamp_ms = 2;    // device clock
