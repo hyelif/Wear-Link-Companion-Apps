@@ -30,11 +30,14 @@ final class GattClient: NSObject, CBPeripheralDelegate {
 
     func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         for c in service.characteristics ?? [] { chars[c.uuid] = c }
-        // Subscribe to all notify characteristics.
+        // Subscribe to all notify characteristics (watch→iOS and bidirectional).
         for uuid in [WearLinkUUID.healthStream,
                     WearLinkUUID.callEvent,
                     WearLinkUUID.musicNowPlaying,
-                    WearLinkUUID.linkControl] {
+                    WearLinkUUID.linkControl,
+                    WearLinkUUID.callAction,
+                    WearLinkUUID.notificationAction,
+                    WearLinkUUID.musicCommand] {
             if let c = chars[uuid], c.properties.contains(CBCharacteristicProperties.notify) {
                 p.setNotifyValue(true, for: c)
             }

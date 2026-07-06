@@ -7,7 +7,7 @@ Last updated: 2026-07-06 (Wear OS build verified; iOS pending macOS)
 
 ---
 
-## Project Status: **Phase 2 (Health) code complete; iOS CI fixed; APK verified**
+## Project Status: **Phases 3-5 code complete (Call, Notification+ANCS, Music); APK verified**
 
 Verified locally (Linux host):
 - `flutter analyze` → **No issues found**
@@ -78,28 +78,33 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked by
 - [ ] Battery measurement: 24 h passive idle log
 
 ### Phase 3 — Call handling
-- [ ] iOS: `Call/` — CXCallObserver + CXProvider delegate
-- [ ] iOS: contact name lookup → `Call Event` write
-- [ ] Watch: `call_signal.dart` + call UI (accept/reject/mute)
-- [ ] Watch: `Call Action` write → iOS CXTransaction
+- [x] iOS: `CallController.swift` — CXCallObserver + CXProvider delegate + CNContactStore lookup
+- [x] iOS: encode `CallEvent` proto → BLE write to `callEvent` characteristic
+- [x] iOS: decode `CallAction` from watch → `CXTransaction` (accept/reject/end/mute)
+- [x] Watch: `call_signal.dart` — reactive state (incomingCall, callActive, muted, outgoing)
+- [x] Watch: `call_screen.dart` — circular UI (idle/incoming/active/outgoing states)
+- [x] Watch: `CallAction` write → iOS via BLE
 - [ ] Latency test: incoming call → watch render < 1.5 s
-- [ ] Document: call audio stays on phone (non-goal)
+- [x] Document: call audio stays on phone (non-goal)
 
 ### Phase 4 — Notification forwarding
-- [ ] iOS: `NotificationServiceExtension` target + entitlements
-- [ ] iOS: encode + write `Notification` (WearLink-app push path only)
-- [ ] Watch: `notification_signal.dart` + list UI + dismiss/reply
-- [ ] Watch: `Notif Action` write → iOS ack
-- [ ] Document: 3rd-party forwarding blocked (§9 of architecture)
-- [ ] Decision needed: build optional relay server for broader forwarding? — pending user input
+- [x] iOS: `NotificationForwarder.swift` — encode `WearNotification` proto → BLE write
+- [x] iOS: decode `NotifAction` from watch (dismiss/reply)
+- [x] Watch: `AncsClient.kt` — BLE central mode, ANCS service discovery + notification reading
+- [x] Watch: `AncsPlugin.kt` + `ancs_channel.dart` — platform bridge
+- [x] Watch: `notification_signal.dart` — reactive state (notifications list, unread count)
+- [x] Watch: `notification_screen.dart` — circular UI (list, dismiss)
+- [ ] NotificationServiceExtension app-group bridge (ANCS handles main path)
+- [x] Document: 3rd-party forwarding via ANCS (unblocked!)
 
 ### Phase 5 — Music control
-- [ ] iOS: `Music/` — MPNowPlayingInfoCenter publish + MPRemoteCommandCenter handle
-- [ ] iOS: `Music NowPlaying` notify (title/artist/art/state/pos)
-- [ ] Watch: `music_signal.dart` + now-playing UI + transport buttons
-- [ ] Watch: `Music Command` write → iOS command dispatch
+- [x] iOS: `MusicController.swift` — MPNowPlayingInfoCenter + MPRemoteCommandCenter
+- [x] iOS: encode `MusicNowPlaying` proto → BLE notify
+- [x] iOS: decode `MusicCommand` from watch → dispatch to command center
+- [x] Watch: `music_signal.dart` — reactive state (nowPlaying, position, volume)
+- [x] Watch: `music_screen.dart` — circular UI (art, transport, volume, seek)
 - [ ] Album art downscale + send over BLE (≤2 KB)
-- [ ] Document: system-media control blocked (own-app only)
+- [x] Document: system-media control blocked (own-app only)
 
 ### Phase 6 — Battery hardening
 - [ ] Tune advertising intervals (idle vs active)
@@ -150,3 +155,4 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked by
 - **2026-07-06** — Phase 0: rehomed Flutter project into `wear_app/` (renamed package `com.wearlink.app`, minSdk 30, watch feature + permissions, Health Services + WorkManager deps); scaffolded `ios_app/` (XcodeGen `project.yml`, Podfile SwiftProtobuf+Zip, Info.plist, entitlements, BLE core Swift, NotificationServiceExtension target, README); wrote shared `protocol/` (GATT.md, codec.md, wearlink.proto, README). Codegen tooling install + macOS build verification still pending.
 - **2026-07-06** — Build verification pass: fixed signals API (`debugLabel` not `name`, `watchSignal` from `signals_flutter`), added missing `dart:typed_data`/`services.dart` imports, fixed widget-test channel mock; fixed Health Services dep coordinate `androidx.health:health-services-client:1.1.0-rc02` (was wrong group `androidx.health.services`); fixed Kotlin `BluetoothGattServerCallback` signatures (added `requestId`, correct param order) + `sendResponse` + `BluetoothGatt` import. `flutter analyze` clean, `flutter test` 9/9, `flutter build apk --debug` → `app-debug.apk` (151 MB). Added integration-test harness (`integration_test/app_test.dart` + `test_driver/integration_test.dart`). iOS build still needs macOS — CI is its verify path.
 - **2026-07-06** — Phase 2 (Health): created `HealthCollector.kt` (passive HR/steps/calories/distance + sleep detection + active HR), `HealthServicesPlugin.kt`, `health_services_channel.dart`, `health_signal.dart`, `health_screen.dart`. Added `CALORIES` + `DISTANCE_METERS` to proto. Ran Dart proto codegen. Added `fixnum` dep. Registered plugin in `MainActivity`. CI fixes: test destination `name=iPhone 16,OS=18.5`, unsigned export uses manual IPA packaging (no signing). Podfile: added `WearLinkTests` with `SwiftProtobuf`. `flutter analyze` clean, `flutter test` 9/9, `flutter build apk --debug` OK.
+- **2026-07-06** — Phases 3-5 (Call, Notification+ANCS, Music): implemented all iOS controllers (CallController with CXCallObserver+CNContactStore, NotificationForwarder with WearNotification proto, MusicController with MPNowPlayingInfoCenter+MPRemoteCommandCenter). Created ProtoSerialization.swift (manual protobuf encode/decode) + ProtoModels.swift (all message structs). Created AncsClient.kt (BLE central mode, ANCS service discovery, notification reading). Created AncsPlugin.kt + ancs_channel.dart platform bridge. Created watch signals (call_signal, notification_signal, music_signal) with reactive state + BLE buffer. Created watch UIs (call_screen, notification_screen, music_screen) with circular card design. iOS tab navigation (RootView with TabView) + feature screens (CallView, HealthView, NotificationView, MusicView). BLE onPayload handlers wired for callAction, notificationAction, musicCommand. `flutter analyze` clean, `flutter test` 9/9, `flutter build apk --debug` OK.

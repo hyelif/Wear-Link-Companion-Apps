@@ -10,6 +10,13 @@ final class HealthViewModel {
     private let store = HKHealthStore()
     private var pending: [HKSample] = []
 
+    /// Whether HealthKit authorization has been granted.
+    private(set) var isAuthorized = false
+    /// Most recent heart rate value received from the watch (bpm).
+    private(set) var lastHeartRate: Double?
+    /// Most recent step count received from the watch.
+    private(set) var lastSteps: Int?
+
     init(ble: BLEManager) { self.ble = ble }
 
     // TODO Phase 2: subscribe to BLE health-stream frames, decode proto,
@@ -24,6 +31,11 @@ final class HealthViewModel {
             if let sleep = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) { s.insert(sleep) }
             return s
         }()
-        try? await store.requestAuthorization(toShare: types, read: [])
+        do {
+            try await store.requestAuthorization(toShare: types, read: [])
+            isAuthorized = true
+        } catch {
+            print("[HealthViewModel] Authorization failed: \(error.localizedDescription)")
+        }
     }
 }

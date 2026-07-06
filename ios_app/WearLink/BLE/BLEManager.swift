@@ -31,6 +31,12 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     private(set) var state: State = .poweredOff
     private(set) var gatt: GattClient?
 
+    /// Feature controllers that receive inbound data from the watch.
+    /// Set by AppContainer after all controllers are initialized.
+    weak var callController: CallController?
+    weak var notificationForwarder: NotificationForwarder?
+    weak var musicController: MusicController?
+
     private let central: CBCentralManager
     private var scanTimer: Timer?
     private var restTimer: Timer?
@@ -94,6 +100,26 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             client.onLinkControl = { [weak self] frame in
                 // Echo the same seq back as ACK — watch confirms liveness.
                 self?.gatt?.write(frame.payload, to: WearLinkUUID.linkControl)
+            }
+            // Register inbound payload handlers for feature characteristics
+            // that the watch writes to (callAction, notificationAction, musicCommand).
+            client.onPayload[WearLinkUUID.callAction] = { [weak self] data in
+                guard let self, let action = ProtoCodec.decodeCallAction(from: data) else { return }
+                Task { @MainActor in
+                    self.callController?.applyAction(action)
+                }
+            }
+            client.onPayload[WearLinkUUID.notificationAction] = { [weak self] data in
+                guard let self, let action = ProtoCodec.decodeNotifAction(from: data) else { return }
+                Task { @MainActor in
+                    self.notificationForwarder?.handleAction(action)
+                }
+            }
+            client.onPayload[WearLinkUUID.musicCommand] = { [weak self] data in
+                guard let self, let command = ProtoCodec.decodeMusicCommand(from: data) else { return }
+                Task { @MainActor in
+                    self.musicController?.dispatchCommand(command)
+                }
             }
             self.gatt = client
             self.state = .connected
