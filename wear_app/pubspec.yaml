@@ -1,0 +1,30 @@
+name: wear_app
+description: "WearLink — Wear OS companion app. BLE peripheral (GATT server), health collector, call/notification/music UI. Talks to native iOS app over BLE."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Reactive state — signals_dart (project-wide state mgmt choice)
+  signals: ^6.0.0
+
+  # Shared wire protocol (generated from ../protocol/proto/*.proto)
+  protobuf: ^3.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  # protoc dart plugin output is committed; plugin listed for toolchain docs only
+  protoc_plugin: ^21.1.0
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

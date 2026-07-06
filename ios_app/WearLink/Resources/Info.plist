@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>WearLink</string>
+    <key>CFBundleDisplayName</key>
+    <string>WearLink</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+    </dict>
+    <key>UILaunchScreen</key>
+    <dict/>
+    <key>UIBackgroundModes</key>
+    <array>
+        <!-- CoreBluetooth central keeps working in background -->
+        <string>bluetooth-central</string>
+        <!-- optional: keep audio session active for music control while backgrounded -->
+        <string>audio</string>
+    </array>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <!-- HealthKit -->
+    <key>NSHealthShareUsageDescription</key>
+    <string>WearLink reads health data synced from your Wear OS watch.</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>WearLink writes health data received from your Wear OS watch into Apple Health.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>WearLink connects to your Wear OS watch over Bluetooth to sync health, calls, notifications, and music.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>WearLink uses Bluetooth to talk to your Wear OS watch.</string>
+    <!-- Contacts: caller name lookup for call handling -->
+    <key>NSContactsUsageDescription</key>
+    <string>WearLink looks up caller names to show them on your watch.</string>
+</dict>
+</plist>

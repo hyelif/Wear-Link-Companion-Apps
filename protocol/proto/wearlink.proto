@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package wearlink;
+
+// WearLink BLE wire protocol. Shared by iOS (SwiftProtobuf) and Wear OS
+// (protobuf dart + Kotlin). Generate both from this file.
+//
+//  protoc --swift_out=../ios_app/WearLink/Generated \
+//          --dart_out=../wear_app/lib/gen \
+//          -I. wearlink.proto
+
+// ------------------------------------------------------------------
+// Link layer
+// ------------------------------------------------------------------
+
+message DeviceInfo {
+  string model = 1;        // e.g. "Galaxy Watch7"
+  string firmware = 2;
+  uint32 battery_percent = 3;
+  uint32 preferred_mtu = 4;
+}
+
+message LinkControl {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    HEARTBEAT = 1;          // payload: timestamp_ms
+    ACK = 2;                // payload: acked_seq
+    NACK = 3;               // payload: naked_seq
+    RECONNECT_TOKEN = 4;    // payload: opaque bytes
+  }
+  Kind kind = 1;
+  uint32 seq = 2;           // seq being acked/nacked (0 for heartbeat)
+  uint64 timestamp_ms = 3;
+  bytes  payload = 4;
+}
+
+// ------------------------------------------------------------------
+// Health
+// ------------------------------------------------------------------
+
+message HealthSample {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    HEART_RATE_BPM = 1;
+    STEPS = 2;
+    SPO2_PERCENT = 3;
+    HRV_MS = 4;
+    SLEEP = 5;               // value = sleep stage (0 awake,1 light,2 deep,3 rem)
+  }
+  Type type = 1;
+  int64 timestamp_ms = 2;    // device clock
+  double value = 3;
+}
+
+message HealthFrame {
+  uint32 sequence = 1;       // frame counter for dedup
+  repeated HealthSample samples = 2;
+  bool compressed = 3;       // if true, `samples` payload was gzip'd before encoding
+}
+
+message HealthControl {
+  enum Command {
+    CMD_UNSPECIFIED = 0;
+    SEND_NOW = 1;             // flush current buffer immediately
+    SET_INTERVAL_MS = 2;     // passive capture + flush cadence
+    SET_TYPES = 3;           // enable/disable sample types
+    START_ACTIVE = 4;         // active high-rate capture (screen on / workout)
+    STOP_ACTIVE = 5;
+  }
+  Command command = 1;
+  uint32 interval_ms = 2;
+  repeated HealthSample.Type types = 3;
+}
+
+// ------------------------------------------------------------------
+// Call
+// ------------------------------------------------------------------
+
+message CallEvent {
+  string call_id = 1;        // opaque id matching CXCall uuid
+  string caller = 2;         // resolved contact name or number
+  bool   has_video = 3;
+  uint64 timestamp_ms = 4;
+}
+
+message CallAction {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    ACCEPT = 1;
+    REJECT = 2;
+    MUTE = 3;
+    END = 4;
+  }
+  string call_id = 1;
+  Action action = 2;
+  uint32 nonce = 3;           // replay protection
+}
+
+// ------------------------------------------------------------------
+// Notification  (WearLink-app push path only — see Software-Structure §9)
+// ------------------------------------------------------------------
+
+message Notification {
+  string notif_id = 1;
+  string app_name = 2;
+  string title = 3;
+  string body = 4;
+  uint64 timestamp_ms = 5;
+  repeated string reply_choices = 6;  // quick-reply suggestions
+}
+
+message NotifAction {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    DISMISS = 1;
+    REPLY = 2;
+  }
+  string notif_id = 1;
+  Action action = 2;
+  string reply_text = 3;     // for REPLY
+  uint32 nonce = 4;
+}
+
+// ------------------------------------------------------------------
+// Music  (own-app media only — see Software-Structure §9)
+// ------------------------------------------------------------------
+
+message MusicNowPlaying {
+  string title = 1;
+  string artist = 2;
+  string album = 3;
+  bytes  art = 4;             // JPEG thumbnail ≤2 KB (chunked)
+  double duration_ms = 5;
+  double position_ms = 6;
+  bool   playing = 7;
+  float  volume = 8;         // 0.0–1.0
+}
+
+message MusicCommand {
+  enum Command {
+    CMD_UNSPECIFIED = 0;
+    PLAY = 1;
+    PAUSE = 2;
+    NEXT = 3;
+    PREVIOUS = 4;
+    SEEK = 5;       // position_ms
+    SET_VOLUME = 6; // volume
+  }
+  Command command = 1;
+  double position_ms = 2;
+  float  volume = 3;
+  uint32 nonce = 4;
+}

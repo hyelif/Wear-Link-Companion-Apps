@@ -1,0 +1,105 @@
+import Foundation
+import CoreBluetooth
+
+/// Central-side BLE manager. Scans for the WearLink watch, connects, bonds,
+/// and exposes the discovered `GattClient`.
+///
+/// Battery: duty-cycled scan (2 s on / 8 s off) when disconnected;
+/// stops scanning immediately on connect. See Software-Structure §4/§6.
+@MainActor
+@Observable
+final class BLEManager: NSObject, CBCentralManagerDelegate {
+    enum State: Equatable {
+        case poweredOff, scanning, connecting, connected, disconnected(Error?)
+    }
+
+    private(set) var state: State = .poweredOff
+    private(set) var gatt: GattClient?
+
+    private let central: CBCentralManager
+    private var scanTimer: Timer?
+    private var restTimer: Timer?
+    private var heartbeatTimer: Timer?
+    private let scanOn: TimeInterval = 2.0
+    private let scanOff: TimeInterval = 8.0
+    private let heartbeatInterval: TimeInterval = 30.0
+
+    override init() {
+        // `options` let CoreBluetooth restore state across relaunches.
+        self.central = CBCentralManager(delegate: nil, queue: .main,
+            options: [CBCentralManagerOptionShowPowerAlertKey: false])
+        super.init()
+        central.delegate = self
+    }
+
+    func startScanning() {
+        guard central.state == .poweredOn else { return }
+        beginScanCycle()
+    }
+
+    private func beginScanCycle() {
+        scanTimer?.invalidate()
+        restTimer?.invalidate()
+        central.scanForPeripherals(withServices: [WearLinkUUID.service],
+                                   options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        state = .scanning
+        scanTimer = Timer.scheduledTimer(withTimeInterval: scanOn, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.central.stopScan()
+            self.restTimer = Timer.scheduledTimer(withTimeInterval: self.scanOff, repeats: false) { [weak self] _ in
+                self?.beginScanCycle()
+            }
+        }
+    }
+
+    func centralManagerDidUpdateState(_ c: CBCentralManager) {
+        if c.state == .poweredOn {
+            startScanning()
+        }
+    }
+
+    func centralManager(_ central: CBCentralManager,
+                        didDiscover peripheral: CBPeripheral,
+                        advertisementData: [String: Any], rssi RSSI: NSNumber) {
+        central.stopScan()
+        scanTimer?.invalidate(); restTimer?.invalidate()
+        state = .connecting
+        peripheral.delegate = self
+        central.connect(peripheral, options: nil)
+    }
+
+    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        let client = GattClient(peripheral: peripheral)
+        // Echo inbound LinkControl frames back as acks (heartbeat echo).
+        client.onLinkControl = { [weak self] frame in
+            // Echo the same seq back as ACK — watch confirms liveness.
+            self?.gatt?.write(frame.payload, to: WearLinkUUID.linkControl)
+        }
+        self.gatt = client
+        state = .connected
+        client.discoverServices()
+        startHeartbeat()
+    }
+
+    func centralManager(_ central: CBCentralManager,
+                        didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = nil
+        self.gatt = nil
+        state = .disconnected(error)
+        // Re-enter scan cycle after a brief rest.
+        beginScanCycle()
+    }
+
+    private func startHeartbeat() {
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: heartbeatInterval, repeats: true) { [weak self] _ in
+            guard let self, let g = self.gatt else { return }
+            // Heartbeat payload: 8-byte timestamp placeholder (device clock).
+            var payload = Data(count: 8)
+            g.write(payload, to: WearLinkUUID.linkControl)
+        }
+    }
+}
+
+extension BLEManager: CBPeripheralDelegate {}
