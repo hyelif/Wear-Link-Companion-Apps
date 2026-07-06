@@ -1,4 +1,5 @@
 import Foundation
+import CoreBluetooth
 
 /// Central place for GATT UUIDs. Mirrors `protocol/GATT.md`.
 /// TODO: replace with 128-bit UUIDs derived from a base once finalized.

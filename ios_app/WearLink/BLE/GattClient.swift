@@ -35,7 +35,7 @@ final class GattClient: NSObject, CBPeripheralDelegate {
                     WearLinkUUID.callEvent,
                     WearLinkUUID.musicNowPlaying,
                     WearLinkUUID.linkControl] {
-            if let c = chars[uuid], c.properties.contains(.notify) {
+            if let c = chars[uuid], c.properties.contains(CBCharacteristicProperties.notify) {
                 p.setNotifyValue(true, for: c)
             }
         }

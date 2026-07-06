@@ -1,7 +1,7 @@
 import Foundation
 
-/// Local on-device cache of health frames received but not yet written to
-/// HealthKit. Survives BLE drops; replayed on reconnect. Phase 2.
-final class SampleStore {
-    // TODO: persist to app group container (replay across launches).
+/// Health-side pending-frame cache. Survives BLE drops; replayed on reconnect.
+/// Phase 2 implementation. (Generic on-device cache lives in Storage/SampleStore.swift.)
+final class HealthSampleStore {
+    // TODO: persist to app group container; replay on BLE reconnect.
 }

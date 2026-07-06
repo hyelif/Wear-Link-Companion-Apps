@@ -11,6 +11,21 @@ import CoreBluetooth
 final class BLEManager: NSObject, CBCentralManagerDelegate {
     enum State: Equatable {
         case poweredOff, scanning, connecting, connected, disconnected(Error?)
+
+        static func == (lhs: State, rhs: State) -> Bool {
+            switch (lhs, rhs) {
+            case (.poweredOff, .poweredOff),
+                 (.scanning, .scanning),
+                 (.connecting, .connecting),
+                 (.connected, .connected):
+                return true
+            case let (.disconnected(le), .disconnected(re)):
+                let l = le as NSError?, r = re as NSError?
+                return l?.domain == r?.domain && l?.code == r?.code
+            default:
+                return false
+            }
+        }
     }
 
     private(set) var state: State = .poweredOff
@@ -52,43 +67,51 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         }
     }
 
-    func centralManagerDidUpdateState(_ c: CBCentralManager) {
-        if c.state == .poweredOn {
-            startScanning()
+    nonisolated func centralManagerDidUpdateState(_ c: CBCentralManager) {
+        guard c.state == .poweredOn else { return }
+        Task { @MainActor in
+            self.startScanning()
         }
     }
 
-    func centralManager(_ central: CBCentralManager,
+    nonisolated func centralManager(_ central: CBCentralManager,
                         didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        central.stopScan()
-        scanTimer?.invalidate(); restTimer?.invalidate()
-        state = .connecting
-        peripheral.delegate = self
-        central.connect(peripheral, options: nil)
-    }
-
-    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        let client = GattClient(peripheral: peripheral)
-        // Echo inbound LinkControl frames back as acks (heartbeat echo).
-        client.onLinkControl = { [weak self] frame in
-            // Echo the same seq back as ACK — watch confirms liveness.
-            self?.gatt?.write(frame.payload, to: WearLinkUUID.linkControl)
+        Task { @MainActor in
+            central.stopScan()
+            self.scanTimer?.invalidate(); self.restTimer?.invalidate()
+            self.state = .connecting
+            peripheral.delegate = self
+            central.connect(peripheral, options: nil)
         }
-        self.gatt = client
-        state = .connected
-        client.discoverServices()
-        startHeartbeat()
     }
 
-    func centralManager(_ central: CBCentralManager,
+    nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        Task { @MainActor in
+            let client = GattClient(peripheral: peripheral)
+            peripheral.delegate = client   // GattClient receives discovery + value callbacks
+            // Echo inbound LinkControl frames back as acks (heartbeat echo).
+            client.onLinkControl = { [weak self] frame in
+                // Echo the same seq back as ACK — watch confirms liveness.
+                self?.gatt?.write(frame.payload, to: WearLinkUUID.linkControl)
+            }
+            self.gatt = client
+            self.state = .connected
+            client.discoverServices()
+            self.startHeartbeat()
+        }
+    }
+
+    nonisolated func centralManager(_ central: CBCentralManager,
                         didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        heartbeatTimer?.invalidate()
-        heartbeatTimer = nil
-        self.gatt = nil
-        state = .disconnected(error)
-        // Re-enter scan cycle after a brief rest.
-        beginScanCycle()
+        Task { @MainActor in
+            self.heartbeatTimer?.invalidate()
+            self.heartbeatTimer = nil
+            self.gatt = nil
+            self.state = .disconnected(error)
+            // Re-enter scan cycle after a brief rest.
+            self.beginScanCycle()
+        }
     }
 
     private func startHeartbeat() {

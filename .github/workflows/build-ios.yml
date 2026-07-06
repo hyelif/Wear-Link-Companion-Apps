@@ -63,7 +63,7 @@ jobs:
           xcodebuild test \
             -workspace WearLink.xcworkspace \
             -scheme WearLink \
-            -destination "platform=iOS Simulator,name=iPhone 15" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
             CODE_SIGNING_ALLOWED=NO \
             | xcpretty
 
