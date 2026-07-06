@@ -63,7 +63,7 @@ jobs:
           xcodebuild test \
             -workspace WearLink.xcworkspace \
             -scheme WearLink \
-            -destination "platform=iOS Simulator,OS=latest" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=18.5" \
             CODE_SIGNING_ALLOWED=NO \
             | xcpretty
 
@@ -108,9 +108,11 @@ jobs:
           <plist version="1.0">
           <dict>
             <key>method</key>
-            <string>debugging</string>
+            <string>release-testing</string>
             <key>signingStyle</key>
-            <string>manual</string>
+            <string>automatic</string>
+            <key>destination</key>
+            <string>export</string>
             <key>compileBitcode</key>
             <false/>
             <key>stripSwiftSymbols</key>
@@ -121,8 +123,7 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath build/WearLink.xcarchive \
             -exportOptionsPlist build/ExportOptions.plist \
-            -exportPath build/ipa \
-            CODE_SIGNING_ALLOWED=NO
+            -exportPath build/ipa
 
       - name: Build + archive + export (signed, when secrets present)
         if: env.USE_CODE_SIGNING == 'true'
