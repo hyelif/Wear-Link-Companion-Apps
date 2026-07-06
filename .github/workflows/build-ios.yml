@@ -31,7 +31,7 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: "16"
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -39,10 +39,11 @@ jobs:
       - name: Install CocoaPods
         run: brew install cocoapods
 
-      - name: Install protoc + SwiftProtobuf plugin
+      - name: Install protoc + SwiftProtobuf plugin + xcpretty
         run: |
           brew install protobuf
           brew install swift-protobuf
+          gem install xcpretty
 
       - name: Generate Swift proto sources
         run: |
@@ -63,7 +64,7 @@ jobs:
           xcodebuild test \
             -workspace WearLink.xcworkspace \
             -scheme WearLink \
-            -destination "platform=iOS Simulator,name=iPhone 16,OS=18.5" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
             CODE_SIGNING_ALLOWED=NO \
             | xcpretty
 

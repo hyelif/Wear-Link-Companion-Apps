@@ -21,7 +21,14 @@ final class HealthViewModel {
 
     // TODO Phase 2: subscribe to BLE health-stream frames, decode proto,
     // build HKQuantitySample / HKCategorySample, enqueue, flush on timer.
-    func requestAuthorization() async {
+    func requestAuthorization() async throws {
+        // Check if HealthKit is available on this device.
+        guard HKHealthStore.isHealthDataAvailable() else {
+            print("[HealthViewModel] HealthKit not available on this device")
+            isAuthorized = false
+            return
+        }
+
         // Request write for: heart rate, steps, SpO2, HRV, sleep.
         let types: Set<HKSampleType> = {
             var s: Set<HKSampleType> = []
@@ -36,6 +43,8 @@ final class HealthViewModel {
             isAuthorized = true
         } catch {
             print("[HealthViewModel] Authorization failed: \(error.localizedDescription)")
+            isAuthorized = false
+            throw error
         }
     }
 }

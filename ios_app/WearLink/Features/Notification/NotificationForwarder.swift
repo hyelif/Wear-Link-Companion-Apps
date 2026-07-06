@@ -118,7 +118,7 @@ final class NotificationForwarder: NSObject {
             timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
             replyChoices: replyChoices
         )
-        let payload = ProtoCodec.encodeNotification(wearNotif)
+        let payload = ProtoCodec.encodeWearNotification(wearNotif)
         ble.gatt?.write(payload, to: WearLinkUUID.notification)
 
         // Record in the in-memory list for the UI.
@@ -127,7 +127,7 @@ final class NotificationForwarder: NSObject {
             appName: appName,
             title: title,
             body: body,
-            timestampMs: notification.timestampMs
+            timestampMs: wearNotif.timestampMs
         )
         forwardedNotifications.insert(item, at: 0)
     }
@@ -216,7 +216,7 @@ final class NotificationForwarder: NSObject {
         registerNotificationActionHandler()
 
         // Build and send the Notification proto to the watch.
-        let notification = Notification(
+        let wearNotif = WearNotification(
             notifId: notifId,
             appName: appName,
             title: title,
@@ -224,7 +224,7 @@ final class NotificationForwarder: NSObject {
             timestampMs: UInt64(timestampMs),
             replyChoices: replyChoices
         )
-        let payload = ProtoCodec.encodeNotification(notification)
+        let payload = ProtoCodec.encodeWearNotification(wearNotif)
         ble.gatt?.write(payload, to: WearLinkUUID.notification)
     }
 

@@ -11,6 +11,11 @@ final class AppContainer {
     let notification: NotificationForwarder
     let music: MusicController
 
+    /// Current paired device info (populated via BLE).
+    var device: WearableDevice?
+    /// User-configurable device settings.
+    var settings = DeviceSettings()
+
     private(set) var didStart = false
 
     init() {
@@ -51,7 +56,13 @@ final class AppContainer {
         }
 
         // Start health monitoring (HealthKit authorization).
-        await health.requestAuthorization()
+        // Wrap in do-catch to prevent crashes on devices without HealthKit access
+        // (e.g., SideStore unsigned builds with free developer accounts).
+        do {
+            try await health.requestAuthorization()
+        } catch {
+            print("[AppContainer] HealthKit authorization failed (non-fatal): \(error.localizedDescription)")
+        }
 
         // Begin BLE scanning for the watch.
         ble.startScanning()
