@@ -56,16 +56,13 @@ jobs:
       - name: Generate Xcode project (XcodeGen)
         run: xcodegen generate
 
-      - name: Install pods
-        run: pod install
-
       - name: Run unit tests (codec)
         run: |
           # Use 'generic/platform=iOS Simulator' as a robust fallback; if a
           # specific simulator name is needed, set DESTINATION in repo vars.
           DEST="${DESTINATION:-platform=iOS Simulator,name=iPhone 16,OS=latest}"
           xcodebuild test \
-            -workspace WearLink.xcworkspace \
+            -project WearLink.xcodeproj \
             -scheme WearLink \
             -destination "$DEST" \
             CODE_SIGNING_ALLOWED=NO \
@@ -92,10 +89,11 @@ jobs:
       - name: Build + archive (unsigned for SideStore)
         if: env.USE_CODE_SIGNING != 'true'
         run: |
-          # Use workspace (pods-integrated) so NotificationServiceExtension
-          # can link Pods_NotificationServiceExtension framework.
+          # Use .xcodeproj directly — Podfile has no targets, so no Pods
+          # frameworks to link. Workspace would add empty Pods targets
+          # that reference non-existent Pods_* frameworks.
           xcodebuild \
-            -workspace WearLink.xcworkspace \
+            -project WearLink.xcodeproj \
             -scheme WearLink \
             -configuration Release \
             -archivePath build/WearLink.xcarchive \
@@ -103,7 +101,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_ENTITLEMENTS="" \
             archive
 
       - name: Export IPA (unsigned for SideStore)
