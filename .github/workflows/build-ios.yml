@@ -39,19 +39,8 @@ jobs:
       - name: Install CocoaPods
         run: brew install cocoapods
 
-      - name: Install protoc + SwiftProtobuf plugin + xcpretty
-        run: |
-          brew install protobuf
-          brew install swift-protobuf
-          gem install xcpretty
-
-      - name: Generate Swift proto sources
-        run: |
-          mkdir -p WearLink/Generated
-          protoc \
-            --swift_out=WearLink/Generated \
-            -I../protocol/proto \
-            ../protocol/proto/wearlink.proto
+      - name: Install xcpretty
+        run: gem install xcpretty
 
       - name: Generate Xcode project (XcodeGen)
         run: xcodegen generate
