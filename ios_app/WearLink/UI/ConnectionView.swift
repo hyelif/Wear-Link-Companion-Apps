@@ -8,16 +8,6 @@ struct ConnectionView: View {
             Section("Link") {
                 statusRow
             }
-            Section("Health") {
-                Label("Sync to Apple Health", systemImage: "heart.text.square")
-                    .task {
-                        do {
-                            try await container.health.requestAuthorization()
-                        } catch {
-                            print("Health authorization failed: \(error)")
-                        }
-                    }
-            }
             Section("Features") {
                 Label("Calls", systemImage: "phone")
                 Label("Notifications", systemImage: "bell")

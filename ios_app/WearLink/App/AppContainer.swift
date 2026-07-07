@@ -6,7 +6,6 @@ import SwiftUI
 @Observable
 final class AppContainer {
     let ble: BLEManager
-    let health: HealthViewModel
     let call: CallController
     let notification: NotificationForwarder
     let music: MusicController
@@ -21,7 +20,6 @@ final class AppContainer {
     init() {
         let ble = BLEManager()
         self.ble = ble
-        self.health = HealthViewModel(ble: ble)
         self.call = CallController(ble: ble)
         self.notification = NotificationForwarder(ble: ble)
         self.music = MusicController(ble: ble)
@@ -46,15 +44,6 @@ final class AppContainer {
         // `guard let gatt = ble.gatt else { assertionFailure; return }` was wrong: no
         // GATT connection exists at launch, so it bailed (crashing in debug) and
         // skipped health authorization + startScanning — the app never connected.
-
-        // Start health monitoring (HealthKit authorization).
-        // Wrap in do-catch to prevent crashes on devices without HealthKit access
-        // (e.g., SideStore unsigned builds with free developer accounts).
-        do {
-            try await health.requestAuthorization()
-        } catch {
-            print("[AppContainer] HealthKit authorization failed (non-fatal): \(error)")
-        }
 
         // Begin BLE scanning for the watch.
         ble.startScanning()

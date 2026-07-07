@@ -77,13 +77,29 @@ final class MusicController: NSObject {
     }
 
     deinit {
-        // Timer invalidation + handler removal must run on the main actor
-        // (the timer was scheduled on main). assumeIsolated asserts we are on
-        // main at deinit time; safe because MusicController is owned by the
-        // @MainActor AppContainer for the app's lifetime.
-        MainActor.assumeIsolated {
-            updateTimer?.invalidate()
-            removeRemoteCommands()
+        // Remove NotificationCenter observer to prevent dangling-pointer crash
+        // when .bleDidReconnect fires after dealloc.
+        NotificationCenter.default.removeObserver(
+            self,
+            name: .bleDidReconnect,
+            object: nil
+        )
+        // Capture values on the current thread (deinit is not actor-isolated);
+        // dispatch cleanup to the main actor without assuming the caller's
+        // actor context.
+        let timer = updateTimer
+        let handlers = remoteCommandHandlers
+        Task { @MainActor in
+            timer?.invalidate()
+            let center = MPRemoteCommandCenter.shared()
+            for handler in handlers {
+                center.playCommand.removeTarget(handler)
+                center.pauseCommand.removeTarget(handler)
+                center.togglePlayPauseCommand.removeTarget(handler)
+                center.nextTrackCommand.removeTarget(handler)
+                center.previousTrackCommand.removeTarget(handler)
+                center.changePlaybackPositionCommand.removeTarget(handler)
+            }
         }
     }
 
@@ -142,24 +158,6 @@ final class MusicController: NSObject {
             return .success
         }
         remoteCommandHandlers.append(seekHandler)
-    }
-
-    /// Removes all registered `MPRemoteCommandCenter` handlers.
-    /// Called from `deinit` to prevent orphaned handler references.
-    private func removeRemoteCommands() {
-        let center = MPRemoteCommandCenter.shared()
-        for handler in remoteCommandHandlers {
-            // Each handler is an opaque MPRemoteCommandHandler object returned
-            // by addTarget(handler:). Passing it to removeTarget(_:) unregisters
-            // only that specific block-based handler.
-            center.playCommand.removeTarget(handler)
-            center.pauseCommand.removeTarget(handler)
-            center.togglePlayPauseCommand.removeTarget(handler)
-            center.nextTrackCommand.removeTarget(handler)
-            center.previousTrackCommand.removeTarget(handler)
-            center.changePlaybackPositionCommand.removeTarget(handler)
-        }
-        remoteCommandHandlers.removeAll()
     }
 
     // MARK: - Reconnection observation

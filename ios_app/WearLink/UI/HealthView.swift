@@ -1,80 +1,15 @@
 import SwiftUI
 
+/// Placeholder health data view. HealthKit integration removed for SideStore
+/// free-account compatibility. Health data display (heart rate, steps, etc.)
+/// will be added here from the BLE health-stream once the in-app display
+/// layer is implemented (no Apple Health write).
 struct HealthView: View {
-    @Environment(AppContainer.self) private var container
-
     var body: some View {
-        List {
-            Section("Authorization") {
-                HStack {
-                    Label("HealthKit", systemImage: "heart.text.square")
-                    Spacer()
-                    if container.health.isAuthorized {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                    } else {
-                        Image(systemName: "circle")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            Section("Live Data") {
-                if let hr = container.health.lastHeartRate {
-                    HStack {
-                        Label("Heart Rate", systemImage: "heart.fill")
-                            .foregroundStyle(.red)
-                        Spacer()
-                        Text("\(Int(hr)) bpm")
-                            .monospacedDigit()
-                    }
-                } else {
-                    HStack {
-                        Label("Heart Rate", systemImage: "heart.fill")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("--")
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                if let steps = container.health.lastSteps {
-                    HStack {
-                        Label("Steps", systemImage: "figure.walk")
-                        Spacer()
-                        Text("\(steps)")
-                            .monospacedDigit()
-                    }
-                } else {
-                    HStack {
-                        Label("Steps", systemImage: "figure.walk")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("--")
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-            }
-
-            Section {
-                Button {
-                    Task {
-                        do {
-                            try await container.health.requestAuthorization()
-                        } catch {
-                            print("Health authorization failed: \(error)")
-                        }
-                    }
-                } label: {
-                    Label("Request Authorization", systemImage: "shield")
-                }
-                .disabled(container.health.isAuthorized)
-            } footer: {
-                if !container.health.isAuthorized {
-                    Text("Authorize HealthKit access to receive health data from your watch.")
-                }
-            }
-        }
-        .navigationTitle("Health")
+        ContentUnavailableView(
+            "Health Data",
+            systemImage: "heart.text.square",
+            description: Text("Health data display coming soon. Your watch syncs health data over BLE — the in-app view will show it here.")
+        )
     }
 }

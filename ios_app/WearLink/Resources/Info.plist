@@ -50,12 +50,7 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
     </array>
-    <!-- HealthKit -->
-    <key>NSHealthShareUsageDescription</key>
-    <string>WearLink reads health data synced from your Wear OS watch.</string>
-    <key>NSHealthUpdateUsageDescription</key>
-    <string>WearLink writes health data received from your Wear OS watch into Apple Health.</string>
-    <key>NSBluetoothAlwaysUsageDescription</key>
+    <!-- Bluetooth: required for BLE communication with the watch -->
     <string>WearLink connects to your Wear OS watch over Bluetooth to sync health, calls, notifications, and music.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
     <string>WearLink uses Bluetooth to talk to your Wear OS watch.</string>

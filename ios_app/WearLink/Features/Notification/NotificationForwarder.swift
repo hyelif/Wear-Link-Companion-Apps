@@ -71,12 +71,18 @@ final class NotificationForwarder: NSObject {
     /// Ordered list of notifications that have been forwarded to the watch.
     private(set) var forwardedNotifications: [ForwardedNotificationItem] = []
 
+    /// Weak reference used by the C-compatible Darwin notification callback
+    /// to avoid the use-after-free crash from `Unmanaged.takeUnretainedValue()`
+    /// when the notification fires during or after deinit.
+    private static weak var _currentForwarder: NotificationForwarder?
+
     // MARK: - Initialization
 
     init(ble: BLEManager) {
         self.ble = ble
         self.sharedDefaults = UserDefaults(suiteName: NotificationBridge.appGroupIdentifier)
         super.init()
+        Self._currentForwarder = self
 
         // Register the BLE handler for incoming NotifAction from the watch.
         // If GattClient is not yet available, the handler is set once it connects
@@ -88,16 +94,19 @@ final class NotificationForwarder: NSObject {
     }
 
     deinit {
-        // pollingTimer was scheduled on main; invalidate there. The Darwin
-        // observer removal is plain C, no actor isolation needed.
-        MainActor.assumeIsolated {
-            pollingTimer?.invalidate()
-            pollingTimer = nil
-        }
+        // Clear the weak ref first so the C callback cannot reach a dangling pointer.
+        Self._currentForwarder = nil
+        // Remove the Darwin observer before any async cleanup to prevent races.
         CFNotificationCenterRemoveEveryObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
             Unmanaged.passUnretained(self).toOpaque()
         )
+        // Capture timer value; invalidate on the main actor without assuming
+        // the caller's actor context (deinit is not actor-isolated).
+        let timer = pollingTimer
+        Task { @MainActor in
+            timer?.invalidate()
+        }
     }
 
     // MARK: - Public API
@@ -267,15 +276,16 @@ final class NotificationForwarder: NSObject {
 // MARK: - Darwin Notification Callback
 
 /// C-compatible callback invoked by CFNotificationCenter when the extension
-/// posts a Darwin notification. Extracts the NotificationForwarder instance
-/// from the observer pointer and dispatches the signal to the main actor.
+/// posts a Darwin notification. Uses a static weak reference to the current
+/// NotificationForwarder instead of `Unmanaged.takeUnretainedValue()` to
+/// avoid a use-after-free crash if the notification fires during or after
+/// deinit (the observer pointer becomes dangling).
 ///
-/// C-compatible callback for CFNotificationCenter.
-/// Uses a non-capturing closure stored as `CFNotificationCallback` type.
-/// Safe because the closure captures nothing — it extracts the observer pointer.
-private let darwinNotificationCallback: CFNotificationCallback = { _, observer, _, _, _ in
-    guard let observer else { return }
-    let forwarder = Unmanaged<NotificationForwarder>.fromOpaque(observer).takeUnretainedValue()
+/// The closure captures nothing (C function pointer requirement); it accesses
+/// the static `_currentForwarder` weak reference which is safe to read from
+/// any thread.
+private let darwinNotificationCallback: CFNotificationCallback = { _, _, _, _, _ in
+    guard let forwarder = NotificationForwarder._currentForwarder else { return }
     Task { @MainActor in
         forwarder.didReceiveDarwinNotification()
     }

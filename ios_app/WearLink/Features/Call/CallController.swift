@@ -40,7 +40,12 @@ final class CallController: NSObject {
     }
 
     deinit {
-        provider.invalidate()
+        // CXProvider.invalidate() must be called on the main thread.
+        // Capture the provider value; deinit is not actor-isolated.
+        let p = provider
+        Task { @MainActor in
+            p.invalidate()
+        }
     }
 }
 
@@ -53,7 +58,8 @@ extension CallController: CXCallObserverDelegate {
 
         let callId = call.uuid.uuidString
 
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             // Deduplicate: skip if we already sent an event for this call.
             guard !self.activeCallIDs.contains(callId) else { return }
             self.activeCallIDs.insert(callId)
@@ -119,7 +125,8 @@ extension CallController {
 
 extension CallController: CXProviderDelegate {
     nonisolated func providerDidReset(_ provider: CXProvider) {
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             self.activeCallIDs.removeAll()
             self.hasIncomingCall = false
             self.incomingCallerName = nil
@@ -132,7 +139,8 @@ extension CallController: CXProviderDelegate {
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         action.fulfill()
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             self.activeCallIDs.remove(action.callUUID.uuidString)
             if self.activeCallIDs.isEmpty {
                 self.hasIncomingCall = false
