@@ -34,19 +34,19 @@ class CallInfo {
 /// ```
 class CallSignal {
   /// Currently incoming call, or `null` if none.
-  final incomingCall = Signal<CallInfo?>(null, debugLabel: 'incomingCall');
+  final incomingCall = Signal<CallInfo?>(null, options: SignalOptions(name: 'incomingCall'));
 
   /// Whether a call is currently active (in progress).
-  final callActive = Signal<bool>(false, debugLabel: 'callActive');
+  final callActive = Signal<bool>(false, options: SignalOptions(name: 'callActive'));
 
   /// Whether the microphone is muted during an active call.
-  final muted = Signal<bool>(false, debugLabel: 'muted');
+  final muted = Signal<bool>(false, options: SignalOptions(name: 'muted'));
 
   /// Whether the watch is currently placing an outgoing call.
-  final outgoing = Signal<bool>(false, debugLabel: 'outgoing');
+  final outgoing = Signal<bool>(false, options: SignalOptions(name: 'outgoing'));
 
   /// Persisted caller name, kept across incoming→active transition.
-  final callerName = Signal<String?>(null, debugLabel: 'callerName');
+  final callerName = Signal<String?>(null, options: SignalOptions(name: 'callerName'));
 
   /// Process an inbound BLE frame from the phone.
   ///

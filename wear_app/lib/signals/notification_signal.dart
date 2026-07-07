@@ -66,10 +66,10 @@ class NotifInfo {
 /// ```
 class NotificationSignal {
   /// Active notifications, newest first.
-  final notifications = signal<List<NotifInfo>>([], debugLabel: 'notifications');
+  final notifications = signal<List<NotifInfo>>([], options: SignalOptions(name: 'notifications'));
 
   /// Number of unread (active) notifications.
-  final unreadCount = signal<int>(0, debugLabel: 'unreadCount');
+  final unreadCount = signal<int>(0, options: SignalOptions(name: 'unreadCount'));
 
   /// GattClient for outbound action writes. Set via [listen] or directly.
   GattClient? gatt;

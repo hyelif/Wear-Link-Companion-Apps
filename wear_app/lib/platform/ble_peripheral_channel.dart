@@ -1,7 +1,6 @@
 // Native platform channel bridge to WearLinkBlePlugin (Kotlin) /
 // BlePeripheralService. Transport only — codec + proto decode live in Dart.
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 

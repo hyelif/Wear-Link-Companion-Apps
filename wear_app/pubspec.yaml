@@ -14,7 +14,8 @@ dependencies:
   signals: ^7.1.0
 
   # Shared wire protocol (generated from ../protocol/proto/*.proto)
-  protobuf: ^6.0.0
+  # Pinned to 3.x — generated code uses PbList() constructor removed in 4.x+
+  protobuf: ^3.1.0
   fixnum: ^1.1.1
 
 dev_dependencies:
@@ -22,7 +23,8 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   # protoc dart plugin output is committed; plugin listed for toolchain docs only
-  protoc_plugin: ^25.0.0
+  # Pinned to 21.x — generated code uses PbList() constructor removed in 22.x+
+  protoc_plugin: ^21.1.0
   integration_test:
     sdk: flutter
 

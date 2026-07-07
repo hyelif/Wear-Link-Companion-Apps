@@ -25,11 +25,13 @@ class CallScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final incoming = watchSignal(context, callSignal.incomingCall);
-    final active = watchSignal(context, callSignal.callActive);
-    final muted = watchSignal(context, callSignal.muted);
-    final outgoing = watchSignal(context, callSignal.outgoing);
-    final callerName = watchSignal(context, callSignal.callerName);
+    return SignalBuilder(
+      builder: (context) {
+    final incoming = callSignal.incomingCall.value;
+    final active = callSignal.callActive.value;
+    final muted = callSignal.muted.value;
+    final outgoing = callSignal.outgoing.value;
+    final callerName = callSignal.callerName.value;
 
     Widget body;
     if (outgoing) {
@@ -64,6 +66,8 @@ class CallScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Center(child: body),
+    );
+      },
     );
   }
 }

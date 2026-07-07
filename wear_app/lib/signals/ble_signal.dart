@@ -7,11 +7,11 @@ enum ConnState { disconnected, connecting, connected }
 
 class BleSignal {
   final Signal<ConnState> connection =
-      signal(ConnState.disconnected, debugLabel: 'ble.connection');
+      signal(ConnState.disconnected, options: SignalOptions(name: 'ble.connection'));
 
   /// Most recent frame per characteristic uuid (raw). Features read their own.
   final MapSignal<String, Uint8List> lastFrame =
-      mapSignal<String, Uint8List>({}, debugLabel: 'ble.lastFrame');
+      mapSignal<String, Uint8List>({}, options: MapSignalOptions(name: 'ble.lastFrame'));
 
   void setConn(ConnState s) => connection.value = s;
   void setFrame(String uuid, Uint8List data) =>

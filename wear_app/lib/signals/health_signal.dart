@@ -16,22 +16,22 @@ class HealthSignal {
   final HealthServicesChannel _channel;
 
   /// Latest heart rate (BPM), or null.
-  final heartRate = signal<double?>(null, debugLabel: 'heartRate');
+  final heartRate = signal<double?>(null, options: SignalOptions(name: 'heartRate'));
 
   /// Step count since boot / last reset.
-  final steps = signal<double>(0, debugLabel: 'steps');
+  final steps = signal<double>(0, options: SignalOptions(name: 'steps'));
 
   /// Calories burned (kcal).
-  final calories = signal<double>(0, debugLabel: 'calories');
+  final calories = signal<double>(0, options: SignalOptions(name: 'calories'));
 
   /// Distance traveled (meters).
-  final distance = signal<double>(0, debugLabel: 'distance');
+  final distance = signal<double>(0, options: SignalOptions(name: 'distance'));
 
   /// Sleep state: 1.0 = asleep, 0.0 = awake, null = unknown.
-  final sleep = signal<double?>(null, debugLabel: 'sleep');
+  final sleep = signal<double?>(null, options: SignalOptions(name: 'sleep'));
 
   /// Number of samples queued for BLE sync.
-  final pendingCount = signal<int>(0, debugLabel: 'pendingCount');
+  final pendingCount = signal<int>(0, options: SignalOptions(name: 'pendingCount'));
 
   /// Raw sample buffer for BLE batch send.
   final List<HealthSample> _buffer = [];

@@ -15,39 +15,41 @@ class HealthScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Health')),
       body: Padding(
         padding: const EdgeInsets.all(8),
-        child: Column(
-          children: [
-            _MetricTile(
-              label: 'Heart Rate',
-              value: watchSignal(context, health.heartRate),
-              unit: 'BPM',
-              icon: Icons.favorite,
-            ),
-            _MetricTile(
-              label: 'Steps',
-              value: watchSignal(context, health.steps),
-              unit: '',
-              icon: Icons.directions_walk,
-            ),
-            _MetricTile(
-              label: 'Calories',
-              value: watchSignal(context, health.calories),
-              unit: 'kcal',
-              icon: Icons.local_fire_department,
-            ),
-            _MetricTile(
-              label: 'Distance',
-              value: watchSignal(context, health.distance),
-              unit: 'm',
-              icon: Icons.straighten,
-            ),
-            _SleepTile(sleep: watchSignal(context, health.sleep)),
-            const Spacer(),
-            Text(
-              'Pending: ${watchSignal(context, health.pendingCount)}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+        child: SignalBuilder(
+          builder: (context) => Column(
+            children: [
+              _MetricTile(
+                label: 'Heart Rate',
+                value: health.heartRate.value,
+                unit: 'BPM',
+                icon: Icons.favorite,
+              ),
+              _MetricTile(
+                label: 'Steps',
+                value: health.steps.value,
+                unit: '',
+                icon: Icons.directions_walk,
+              ),
+              _MetricTile(
+                label: 'Calories',
+                value: health.calories.value,
+                unit: 'kcal',
+                icon: Icons.local_fire_department,
+              ),
+              _MetricTile(
+                label: 'Distance',
+                value: health.distance.value,
+                unit: 'm',
+                icon: Icons.straighten,
+              ),
+              _SleepTile(sleep: health.sleep.value),
+              const Spacer(),
+              Text(
+                'Pending: ${health.pendingCount.value}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
         ),
       ),
     );

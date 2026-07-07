@@ -16,11 +16,14 @@ class NotificationScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final list = watchSignal(context, notifSignal.notifications);
-
     return Scaffold(
       appBar: AppBar(title: const Text('Notifications')),
-      body: list.isEmpty ? _buildEmpty(context) : _buildList(context, list),
+      body: SignalBuilder(
+        builder: (context) {
+          final list = notifSignal.notifications.value;
+          return list.isEmpty ? _buildEmpty(context) : _buildList(context, list);
+        },
+      ),
     );
   }
 

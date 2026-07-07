@@ -105,20 +105,7 @@ class ConnectionScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final conn = watchSignal(context, bleSignal.connection);
     final theme = Theme.of(context);
-
-    final (connText, connIcon) = switch (conn) {
-      ConnState.disconnected => ('Searching for iPhone…', Icons.bluetooth_disabled),
-      ConnState.connecting => ('Connecting…', Icons.bluetooth_searching),
-      ConnState.connected => ('Connected to iPhone', Icons.bluetooth_connected),
-    };
-
-    final connColor = switch (conn) {
-      ConnState.disconnected => Colors.grey[600]!,
-      ConnState.connecting => Colors.orange,
-      ConnState.connected => Colors.teal,
-    };
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -126,19 +113,36 @@ class ConnectionScreen extends StatelessWidget {
         child: Column(
           children: [
             // BLE connection status indicator
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(connIcon, size: 24, color: connColor),
-                  const SizedBox(width: 8),
-                  Text(
-                    connText,
-                    style: theme.textTheme.titleSmall?.copyWith(color: connColor),
+            SignalBuilder(
+              builder: (context) {
+                final conn = bleSignal.connection.value;
+                final (connText, connIcon) = switch (conn) {
+                  ConnState.disconnected => ('Searching for iPhone…', Icons.bluetooth_disabled),
+                  ConnState.connecting => ('Connecting…', Icons.bluetooth_searching),
+                  ConnState.connected => ('Connected to iPhone', Icons.bluetooth_connected),
+                };
+
+                final connColor = switch (conn) {
+                  ConnState.disconnected => Colors.grey[600]!,
+                  ConnState.connecting => Colors.orange,
+                  ConnState.connected => Colors.teal,
+                };
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(connIcon, size: 24, color: connColor),
+                      const SizedBox(width: 8),
+                      Text(
+                        connText,
+                        style: theme.textTheme.titleSmall?.copyWith(color: connColor),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             ),
             const Divider(color: Colors.teal, height: 1),
             // Scrollable feature cards

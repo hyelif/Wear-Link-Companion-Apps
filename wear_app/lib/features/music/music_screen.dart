@@ -17,16 +17,18 @@ class MusicScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final info = watchSignal(context, music.nowPlaying);
-
-    if (info == null) {
-      return const _IdleState();
-    }
-
-    return _NowPlaying(
-      info: info,
-      position: watchSignal(context, music.position),
-      music: music,
+    return SignalBuilder(
+      builder: (context) {
+        final info = music.nowPlaying.value;
+        if (info == null) {
+          return const _IdleState();
+        }
+        return _NowPlaying(
+          info: info,
+          position: music.position.value,
+          music: music,
+        );
+      },
     );
   }
 }

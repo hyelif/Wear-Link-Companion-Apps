@@ -60,10 +60,10 @@ class MusicSignal {
   GattClient? _gatt;
 
   /// Currently playing track info, or null if no track is active.
-  final nowPlaying = signal<MusicInfo?>(null, debugLabel: 'nowPlaying');
+  final nowPlaying = signal<MusicInfo?>(null, options: SignalOptions(name: 'nowPlaying'));
 
   /// Current playback position in milliseconds.
-  final position = signal<double>(0, debugLabel: 'position');
+  final position = signal<double>(0, options: SignalOptions(name: 'position'));
 
   MusicSignal();
 
