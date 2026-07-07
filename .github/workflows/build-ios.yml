@@ -57,7 +57,7 @@ jobs:
         run: xcodegen generate
 
       - name: Install pods
-        run: pod install || true
+        run: pod install
 
       - name: Run unit tests (codec)
         run: |
@@ -69,7 +69,7 @@ jobs:
             -scheme WearLink \
             -destination "$DEST" \
             CODE_SIGNING_ALLOWED=NO \
-            | xcpretty || true
+            | xcpretty
 
       - name: Import signing certificate + profile (if secrets present)
         if: env.USE_CODE_SIGNING == 'true'
@@ -92,9 +92,10 @@ jobs:
       - name: Build + archive (unsigned for SideStore)
         if: env.USE_CODE_SIGNING != 'true'
         run: |
-          # Use .xcodeproj directly (no pods needed) to avoid workspace issues
+          # Use workspace (pods-integrated) so NotificationServiceExtension
+          # can link Pods_NotificationServiceExtension framework.
           xcodebuild \
-            -project WearLink.xcodeproj \
+            -workspace WearLink.xcworkspace \
             -scheme WearLink \
             -configuration Release \
             -archivePath build/WearLink.xcarchive \
