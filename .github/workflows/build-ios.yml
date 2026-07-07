@@ -93,6 +93,15 @@ jobs:
           # Use workspace (manually created above) so scheme resolution works
           # for archive action. No Pods integration needed — Podfile has no
           # targets, so no Pods_* framework references exist.
+          #
+          # Raw xcodebuild output is tee'd to build/archive.log AND piped to
+          # xcpretty. PIPESTATUS[0] captures xcodebuild's real exit (xcpretty
+          # otherwise masks it). On failure we cat the raw log so the actual
+          # compiler/linker error is visible in the step output — no admin log
+          # access needed to debug.
+          set -o pipefail
+          set +e
+          mkdir -p build
           xcodebuild \
             -workspace WearLink.xcworkspace \
             -scheme WearLink \
@@ -104,7 +113,29 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="" \
-            archive 2>&1 | xcpretty
+            archive 2>&1 | tee build/archive.log | xcpretty
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "xcodebuild archive exit: $STATUS"
+          if [ "$STATUS" -ne 0 ]; then
+            echo "=== RAW xcodebuild output ==="
+            cat build/archive.log
+            exit "$STATUS"
+          fi
+
+      - name: Inspect archive contents
+        if: always() && env.USE_CODE_SIGNING != 'true'
+        run: |
+          # Diagnostic: show what xcodebuild actually produced. The export step
+          # fails with "WearLink.app: No such file or directory" when archive
+          # exits 0 but no .app lands at Products/Applications/. This reveals
+          # the real archive layout so we can pinpoint the mismatch.
+          echo "=== find build/WearLink.xcarchive (maxdepth 4) ==="
+          find build/WearLink.xcarchive -maxdepth 4 2>/dev/null | head -80 || echo "no archive dir found"
+          echo "=== Products/Applications ==="
+          ls -la build/WearLink.xcarchive/Products/Applications/ 2>&1 || true
+          echo "=== any .app/.appex under archive ==="
+          find build/WearLink.xcarchive -name "*.app" -o -name "*.appex" 2>/dev/null || true
 
       - name: Export IPA (unsigned for SideStore)
         if: env.USE_CODE_SIGNING != 'true'
@@ -112,7 +143,14 @@ jobs:
           # Manual IPA packaging — no signing metadata needed.
           # SideStore resigns the .ipa on-device with the user's Apple ID.
           mkdir -p build/ipa/Payload
-          cp -r "build/WearLink.xcarchive/Products/Applications/WearLink.app" build/ipa/Payload/
+          APP=$(find build/WearLink.xcarchive/Products/Applications -name "*.app" -type d 2>/dev/null | head -1)
+          if [ -z "$APP" ]; then
+            echo "ERROR: no .app found in archive Products/Applications — see 'Inspect archive contents' step"
+            find build/WearLink.xcarchive 2>/dev/null | head -40 || echo "no archive at all"
+            exit 1
+          fi
+          echo "Packaging: $APP"
+          cp -r "$APP" build/ipa/Payload/
           cd build/ipa && zip -r WearLink.ipa Payload/
 
       - name: Build + archive + export (signed, when secrets present)
