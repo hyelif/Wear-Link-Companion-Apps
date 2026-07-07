@@ -27,10 +27,11 @@
     <dict/>
     <key>UIBackgroundModes</key>
     <array>
-        <!-- CoreBluetooth central keeps working in background -->
+        <!-- CoreBluetooth central keeps working in background.
+             remote-notification REMOVED: APNs requires a paid Apple Developer
+             Program (not available on free / SideStore accounts). Re-add for a
+             paid / App Store build once the NotificationServiceExtension is restored. -->
         <string>bluetooth-central</string>
-        <!-- Remote notifications for call/notification relay from watch -->
-        <string>remote-notification</string>
     </array>
     <key>UIRequiredDeviceCapabilities</key>
     <array>
