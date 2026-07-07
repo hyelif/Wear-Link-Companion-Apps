@@ -74,7 +74,8 @@ final class NotificationForwarder: NSObject {
     /// Weak reference used by the C-compatible Darwin notification callback
     /// to avoid the use-after-free crash from `Unmanaged.takeUnretainedValue()`
     /// when the notification fires during or after deinit.
-    private static weak var _currentForwarder: NotificationForwarder?
+    /// `nonisolated` so deinit (nonisolated context) can clear it.
+    fileprivate nonisolated static weak var _currentForwarder: NotificationForwarder?
 
     // MARK: - Initialization
 
@@ -94,18 +95,19 @@ final class NotificationForwarder: NSObject {
     }
 
     deinit {
-        // Clear the weak ref first so the C callback cannot reach a dangling pointer.
-        Self._currentForwarder = nil
-        // Remove the Darwin observer before any async cleanup to prevent races.
+        // Remove the Darwin observer first to prevent any callback race.
         CFNotificationCenterRemoveEveryObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
             Unmanaged.passUnretained(self).toOpaque()
         )
-        // Capture timer value; invalidate on the main actor without assuming
-        // the caller's actor context (deinit is not actor-isolated).
-        let timer = pollingTimer
-        Task { @MainActor in
-            timer?.invalidate()
+        // Clear weak ref + invalidate timer on the main actor.
+        // assumeIsolated is correct: NotificationForwarder is @MainActor and
+        // owned by AppContainer (also @MainActor), so deinit always runs on
+        // the main actor.
+        MainActor.assumeIsolated {
+            Self._currentForwarder = nil
+            pollingTimer?.invalidate()
+            pollingTimer = nil
         }
     }
 

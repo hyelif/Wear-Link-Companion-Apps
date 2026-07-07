@@ -84,15 +84,14 @@ final class MusicController: NSObject {
             name: .bleDidReconnect,
             object: nil
         )
-        // Capture values on the current thread (deinit is not actor-isolated);
-        // dispatch cleanup to the main actor without assuming the caller's
-        // actor context.
-        let timer = updateTimer
-        let handlers = remoteCommandHandlers
-        Task { @MainActor in
-            timer?.invalidate()
+        // Timer invalidation + handler removal must run on the main actor.
+        // assumeIsolated is correct here: MusicController is @MainActor and
+        // owned by AppContainer (also @MainActor), so deinit always runs on
+        // the main actor. The assertion catches any accidental off-main release.
+        MainActor.assumeIsolated {
+            updateTimer?.invalidate()
             let center = MPRemoteCommandCenter.shared()
-            for handler in handlers {
+            for handler in remoteCommandHandlers {
                 center.playCommand.removeTarget(handler)
                 center.pauseCommand.removeTarget(handler)
                 center.togglePlayPauseCommand.removeTarget(handler)
