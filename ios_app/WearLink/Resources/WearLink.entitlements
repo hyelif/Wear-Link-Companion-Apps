@@ -2,18 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- HealthKit read+write of data received from watch -->
-	<key>com.apple.developer.healthkit</key>
-	<true/>
-	<key>com.apple.developer.healthkit.access</key>
-	<array/>
-	<!-- Background BLE central is granted via UIBackgroundModes, no entitlement needed.
-	     aps-environment + app-group REMOVED for SideStore (free-account) unsigned builds:
-	     APNs (aps-environment) requires a PAID Apple Developer Program; the
-	     NotificationServiceExtension target is also excluded from this build (it
-	     needs APNs + a separate App ID that SideStore cannot provision on a free
-	     account — its presence makes SideStore crash / refuse to install). Re-add
-	     aps-environment + app-group + the NotificationServiceExtension target for a
-	     paid / App Store build. -->
+	<!-- SideStore (free-account) launch build: NO entitlements, matching the
+	     working unsigned Flutter build exactly.
+
+	     NOTE: under the CI unsigned archive (CODE_SIGNING_ALLOWED=NO) this file
+	     is a build-time signing input only and is NOT shipped in the .app, so it
+	     has no runtime effect on the SideStore-resigned IPA. It is kept empty
+	     for hygiene + so a future PAID / App Store signed build can re-add:
+	       - com.apple.developer.healthkit            (Apple Health write)
+	       - com.apple.developer.healthkit.access      (clinical types array)
+	       - com.apple.security.application-groups    (NSE bridge)
+	       - aps-environment = production            (push, with NSE target)
+	     HealthKit code paths stay in the app and are guarded (do-catch around
+	     requestAuthorization), so they no-op safely without the entitlement. -->
 </dict>
 </plist>
