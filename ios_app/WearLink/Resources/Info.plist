@@ -23,8 +23,17 @@
         <key>UIApplicationSupportsMultipleScenes</key>
         <false/>
     </dict>
+    <!-- Opaque launch screen. An empty <dict/> renders a TRANSPARENT launch
+         screen (home-screen wallpaper shows through), which on SideStore reads
+         as a "blank / see-my-background" app. Reference an adaptive solid color
+         (LaunchBackground in Assets.xcassets: white in light, black in dark)
+         so launch is opaque, matching the working Flutter build's LaunchScreen
+         storyboard. -->
     <key>UILaunchScreen</key>
-    <dict/>
+    <dict>
+        <key>UIColorName</key>
+        <string>LaunchBackground</string>
+    </dict>
     <key>UIBackgroundModes</key>
     <array>
         <!-- CoreBluetooth central keeps working in background.
