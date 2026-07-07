@@ -12,7 +12,7 @@ struct MusicView: View {
                     ContentUnavailableView(
                         "No Music Playing",
                         systemImage: "music.note",
-                        description: "Play audio in WearLink to see now-playing info."
+                        description: Text("Play audio in WearLink to see now-playing info.")
                     )
                 }
             } else {

@@ -9,7 +9,7 @@ struct NotificationView: View {
                 ContentUnavailableView(
                     "No Notifications",
                     systemImage: "bell.slash",
-                    description: "Forwarded notifications from your watch will appear here."
+                    description: Text("Forwarded notifications from your watch will appear here.")
                 )
             } else {
                 ForEach(container.notification.forwardedNotifications) { item in

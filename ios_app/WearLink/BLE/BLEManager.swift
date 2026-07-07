@@ -104,33 +104,45 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        let client = GattClient(peripheral: peripheral)
-        // Echo inbound LinkControl frames back as acks (heartbeat echo).
-        client.onLinkControl = { [weak self] frame in
-            Task { @MainActor in
-                let seqData = withUnsafeBytes(of: frame.seq.bigEndian) { Data($0) }
-                self?.gatt?.write(seqData, to: WearLinkUUID.linkControl)
+        Task { @MainActor in
+            let client = GattClient(peripheral: peripheral)
+            // Echo inbound LinkControl frames back as acks (heartbeat echo).
+            client.onLinkControl = { [weak self] frame in
+                Task { @MainActor in
+                    let seqData = withUnsafeBytes(of: frame.seq.bigEndian) { Data($0) }
+                    self?.gatt?.write(seqData, to: WearLinkUUID.linkControl)
+                }
             }
+            // Register inbound payload handlers for feature characteristics
+            // that the watch writes to (callAction, notificationAction, musicCommand).
+            // Each handler hops to the main actor: BLEManager is @MainActor, so its
+            // callController/notificationForwarder/musicController and gatt/state are
+            // main-actor-isolated and cannot be touched from the peripheral-delegate
+            // (nonisolated) closure directly.
+            client.onPayload[WearLinkUUID.callAction] = { [weak self] data in
+                Task { @MainActor in
+                    guard let self, let action = ProtoCodec.decodeCallAction(from: data) else { return }
+                    self.callController?.applyAction(action)
+                }
+            }
+            client.onPayload[WearLinkUUID.notificationAction] = { [weak self] data in
+                Task { @MainActor in
+                    guard let self, let action = ProtoCodec.decodeNotifAction(from: data) else { return }
+                    self.notificationForwarder?.handleAction(action)
+                }
+            }
+            client.onPayload[WearLinkUUID.musicCommand] = { [weak self] data in
+                Task { @MainActor in
+                    guard let self, let command = ProtoCodec.decodeMusicCommand(from: data) else { return }
+                    self.musicController?.dispatchCommand(command)
+                }
+            }
+            self.gatt = client
+            self.state = .connected
+            peripheral.delegate = client
+            client.discoverServices()
+            self.startHeartbeat()
         }
-        // Register inbound payload handlers for feature characteristics
-        // that the watch writes to (callAction, notificationAction, musicCommand).
-        client.onPayload[WearLinkUUID.callAction] = { [weak self] data in
-            guard let self, let action = ProtoCodec.decodeCallAction(from: data) else { return }
-            self.callController?.applyAction(action)
-        }
-        client.onPayload[WearLinkUUID.notificationAction] = { [weak self] data in
-            guard let self, let action = ProtoCodec.decodeNotifAction(from: data) else { return }
-            self.notificationForwarder?.handleAction(action)
-        }
-        client.onPayload[WearLinkUUID.musicCommand] = { [weak self] data in
-            guard let self, let command = ProtoCodec.decodeMusicCommand(from: data) else { return }
-            self.musicController?.dispatchCommand(command)
-        }
-        self.gatt = client
-        self.state = .connected
-        peripheral.delegate = client
-        client.discoverServices()
-        self.startHeartbeat()
     }
 
     nonisolated func centralManager(_ central: CBCentralManager,

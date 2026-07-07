@@ -352,7 +352,7 @@ extension ProtoCodec {
             switch (fieldNum, wireType) {
             case (1, 0):
                 guard let raw = decodeVarint(from: data, offset: &offset),
-                      let v = HealthSample.`Type`(rawValue: UInt32(raw))
+                      let v = HealthSample.SampleType(rawValue: UInt32(raw))
                 else { return nil }
                 type = v
             case (2, 0):
@@ -469,7 +469,7 @@ extension ProtoCodec {
             case (3, 0):
                 // Unpacked varint (non-packed repeated enum)
                 guard let raw = decodeVarint(from: data, offset: &offset) else { return nil }
-                if let t = HealthSample.`Type`(rawValue: UInt32(raw)) {
+                if let t = HealthSample.SampleType(rawValue: UInt32(raw)) {
                     types.append(t)
                 }
             case (3, 2):
@@ -478,7 +478,7 @@ extension ProtoCodec {
                 var packedOffset = 0
                 while packedOffset < packed.count {
                     guard let raw = ProtoCodec.decodeVarint(from: packed, offset: &packedOffset) else { break }
-                    if let t = HealthSample.`Type`(rawValue: UInt32(raw)) {
+                    if let t = HealthSample.SampleType(rawValue: UInt32(raw)) {
                         types.append(t)
                     }
                 }

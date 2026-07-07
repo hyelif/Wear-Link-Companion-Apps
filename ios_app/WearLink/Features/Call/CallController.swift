@@ -1,5 +1,6 @@
 import Foundation
 import CallKit
+import AVFoundation
 
 /// Detects incoming calls (CallKit) and forwards caller info to the watch
 /// via `callEvent`. Receives `callAction` (accept/reject/mute/end) from the
@@ -132,7 +133,7 @@ extension CallController: CXProviderDelegate {
     nonisolated func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         action.fulfill()
         Task { @MainActor in
-            self.activeCallIDs.remove(action.call.uuidString)
+            self.activeCallIDs.remove(action.callUUID.uuidString)
             if self.activeCallIDs.isEmpty {
                 self.hasIncomingCall = false
                 self.incomingCallerName = nil

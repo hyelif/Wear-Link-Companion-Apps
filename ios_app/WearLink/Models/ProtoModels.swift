@@ -44,6 +44,9 @@ struct HealthSample {
         case calories = 6
         case distanceMeters = 7
     }
+    /// Alias so call sites can write `HealthSample.SampleType(rawValue:)` without
+    /// the parser resolving `HealthSample.Type` as the metatype expression.
+    typealias SampleType = `Type`
     var type: `Type`
     var timestampMs: Int64
     var value: Double

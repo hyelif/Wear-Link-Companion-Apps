@@ -38,26 +38,14 @@ final class AppContainer {
         guard !didStart else { return }
         didStart = true
 
-        // Wire BLE onPayload handlers for inbound watch data.
-        // These fire when the watch sends data on the corresponding
-        // characteristic; they decode the proto and dispatch to the
-        // appropriate feature controller.
-        guard let gatt = ble.gatt else {
-            assertionFailure("AppContainer.start: gatt not ready — onPayload handlers not registered")
-            return
-        }
-        gatt.onPayload[WearLinkUUID.callAction] = { [weak self] data in
-            guard let self, let action = ProtoCodec.decodeCallAction(from: data) else { return }
-            self.call.applyAction(action)
-        }
-        gatt.onPayload[WearLinkUUID.notificationAction] = { [weak self] data in
-            guard let self, let action = ProtoCodec.decodeNotifAction(from: data) else { return }
-            self.notification.handleAction(action)
-        }
-        gatt.onPayload[WearLinkUUID.musicCommand] = { [weak self] data in
-            guard let self, let command = ProtoCodec.decodeMusicCommand(from: data) else { return }
-            self.music.dispatchCommand(command)
-        }
+        // Inbound watch data (callAction / notificationAction / musicCommand) is
+        // dispatched by BLEManager.centralManager(_:didConnect:) -> GattClient.onPayload,
+        // re-registered on every connect. AppContainer wires the feature controllers
+        // into BLEManager in init() (callController / notificationForwarder /
+        // musicController), so nothing to register here at launch. The previous
+        // `guard let gatt = ble.gatt else { assertionFailure; return }` was wrong: no
+        // GATT connection exists at launch, so it bailed (crashing in debug) and
+        // skipped health authorization + startScanning — the app never connected.
 
         // Start health monitoring (HealthKit authorization).
         // Wrap in do-catch to prevent crashes on devices without HealthKit access

@@ -29,7 +29,7 @@ struct MusicControlOptionsView: View {
         List {
             Section {
                 Picker("Background Color", selection: $selectedColor) {
-                    ForEach(BackgroundColor.allCases, id: .self) { color in
+                    ForEach(BackgroundColor.allCases, id: \.self) { color in
                         HStack {
                             Circle()
                                 .fill(color.color)

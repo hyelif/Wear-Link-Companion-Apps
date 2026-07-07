@@ -21,6 +21,11 @@ struct DeviceSettings: Codable {
     var showAlbumArt: Bool = false
     var watchFaceAlwaysOn: Bool = true
 
+    /// Parameterless init using the defaults above. Required because the
+    /// explicit `init(from:)` below suppresses the synthesized memberwise
+    /// initializer, which would otherwise make `DeviceSettings()` unavailable.
+    init() {}
+
     enum CodingKeys: String, CodingKey {
         case autoConnect
         case analytics

@@ -88,8 +88,12 @@ final class NotificationForwarder: NSObject {
     }
 
     deinit {
-        pollingTimer?.invalidate()
-        pollingTimer = nil
+        // pollingTimer was scheduled on main; invalidate there. The Darwin
+        // observer removal is plain C, no actor isolation needed.
+        MainActor.assumeIsolated {
+            pollingTimer?.invalidate()
+            pollingTimer = nil
+        }
         CFNotificationCenterRemoveEveryObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
             Unmanaged.passUnretained(self).toOpaque()
@@ -183,7 +187,7 @@ final class NotificationForwarder: NSObject {
     /// Called by the Darwin notification callback when the extension signals
     /// that a new notification is available in the shared UserDefaults.
     /// Dispatched to MainActor by the callback.
-    private func didReceiveDarwinNotification() {
+    fileprivate func didReceiveDarwinNotification() {
         checkPendingNotifications()
     }
 
