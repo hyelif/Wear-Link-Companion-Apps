@@ -266,16 +266,10 @@ final class NotificationForwarder: NSObject {
 /// posts a Darwin notification. Extracts the NotificationForwarder instance
 /// from the observer pointer and dispatches the signal to the main actor.
 ///
-/// Must be a `@convention(c)` global function (not a closure variable) so that
-/// Swift can produce a stable C function pointer for CFNotificationCenter.
-@convention(c)
-private func darwinNotificationCallback(
-    _ center: CFNotificationCenter?,
-    _ observer: UnsafeMutableRawPointer?,
-    _ name: CFString?,
-    _ object: UnsafePointer<CFString>?,
-    _ userInfo: CFDictionary?
-) {
+/// C-compatible callback for CFNotificationCenter.
+/// Uses a non-capturing closure stored as `CFNotificationCallback` type.
+/// Safe because the closure captures nothing — it extracts the observer pointer.
+private let darwinNotificationCallback: CFNotificationCallback = { _, observer, _, _, _ in
     guard let observer else { return }
     let forwarder = Unmanaged<NotificationForwarder>.fromOpaque(observer).takeUnretainedValue()
     Task { @MainActor in

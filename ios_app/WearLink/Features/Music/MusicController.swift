@@ -90,21 +90,21 @@ final class MusicController: NSObject {
         let center = MPRemoteCommandCenter.shared()
 
         let playHandler = center.playCommand.addTarget { [weak self] _ in
-            guard let self else { return .noActionableNow }
+            guard let self else { return .noSuchAction }
             self.onPlay?()
             return .success
         }
         remoteCommandHandlers.append(playHandler)
 
         let pauseHandler = center.pauseCommand.addTarget { [weak self] _ in
-            guard let self else { return .noActionableNow }
+            guard let self else { return .noSuchAction }
             self.onPause?()
             return .success
         }
         remoteCommandHandlers.append(pauseHandler)
 
         let toggleHandler = center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            guard let self else { return .noActionableNow }
+            guard let self else { return .noSuchAction }
             if self.nowPlaying.playing {
                 self.onPause?()
             } else {
@@ -115,14 +115,14 @@ final class MusicController: NSObject {
         remoteCommandHandlers.append(toggleHandler)
 
         let nextHandler = center.nextTrackCommand.addTarget { [weak self] _ in
-            guard let self else { return .noActionableNow }
+            guard let self else { return .noSuchAction }
             self.onNextTrack?()
             return .success
         }
         remoteCommandHandlers.append(nextHandler)
 
         let prevHandler = center.previousTrackCommand.addTarget { [weak self] _ in
-            guard let self else { return .noActionableNow }
+            guard let self else { return .noSuchAction }
             self.onPreviousTrack?()
             return .success
         }

@@ -4,7 +4,8 @@ import CoreBluetooth
 /// Wraps the connected peripheral: service/characteristic discovery,
 /// subscriptions (notify), framed writes + chunk reassembly, and inbound
 /// payload dispatch to per-characteristic handlers.
-@MainActor
+/// Not @MainActor — CBPeripheralDelegate callbacks arrive on CBCentralManager's
+/// queue (set to .main in BLEManager), so all delegate methods are safe on main.
 final class GattClient: NSObject, CBPeripheralDelegate {
     let peripheral: CBPeripheral
     private var chars: [CBUUID: CBCharacteristic] = [:]
