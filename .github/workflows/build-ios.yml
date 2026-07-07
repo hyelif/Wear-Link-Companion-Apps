@@ -113,7 +113,9 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            archive
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            archive 2>&1 | xcpretty
 
       - name: Export IPA (unsigned for SideStore)
         if: env.USE_CODE_SIGNING != 'true'
