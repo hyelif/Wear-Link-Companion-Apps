@@ -58,7 +58,13 @@ struct HealthView: View {
 
             Section {
                 Button {
-                    Task { await container.health.requestAuthorization() }
+                    Task {
+                        do {
+                            try await container.health.requestAuthorization()
+                        } catch {
+                            print("Health authorization failed: \(error)")
+                        }
+                    }
                 } label: {
                     Label("Request Authorization", systemImage: "shield")
                 }

@@ -10,7 +10,13 @@ struct ConnectionView: View {
             }
             Section("Health") {
                 Label("Sync to Apple Health", systemImage: "heart.text.square")
-                    .task { await container.health.requestAuthorization() }
+                    .task {
+                        do {
+                            try await container.health.requestAuthorization()
+                        } catch {
+                            print("Health authorization failed: \(error)")
+                        }
+                    }
             }
             Section("Features") {
                 Label("Calls", systemImage: "phone")

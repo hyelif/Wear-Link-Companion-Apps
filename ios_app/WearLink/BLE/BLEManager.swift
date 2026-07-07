@@ -68,36 +68,42 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             guard let self else { return }
             self.central.stopScan()
             self.restTimer = Timer.scheduledTimer(withTimeInterval: self.scanOff, repeats: false) { [weak self] _ in
-                self?.beginScanCycle()
+                Task { @MainActor in
+                    self?.beginScanCycle()
+                }
             }
         }
     }
 
-    func centralManagerDidUpdateState(_ c: CBCentralManager) {
-        if c.state == .poweredOn {
-            startScanning()
-        } else {
-            state = .poweredOff
-            scanTimer?.invalidate()
-            restTimer?.invalidate()
-            heartbeatTimer?.invalidate()
-            scanTimer = nil
-            restTimer = nil
-            heartbeatTimer = nil
-            gatt = nil
+    nonisolated func centralManagerDidUpdateState(_ c: CBCentralManager) {
+        Task { @MainActor in
+            if c.state == .poweredOn {
+                startScanning()
+            } else {
+                state = .poweredOff
+                scanTimer?.invalidate()
+                restTimer?.invalidate()
+                heartbeatTimer?.invalidate()
+                scanTimer = nil
+                restTimer = nil
+                heartbeatTimer = nil
+                gatt = nil
+            }
         }
     }
 
-    func centralManager(_ central: CBCentralManager,
+    nonisolated func centralManager(_ central: CBCentralManager,
                         didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        central.stopScan()
-        scanTimer?.invalidate(); restTimer?.invalidate()
-        state = .connecting
-        central.connect(peripheral, options: nil)
+        Task { @MainActor in
+            central.stopScan()
+            scanTimer?.invalidate(); restTimer?.invalidate()
+            state = .connecting
+            central.connect(peripheral, options: nil)
+        }
     }
 
-    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+    nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         let client = GattClient(peripheral: peripheral)
         // Echo inbound LinkControl frames back as acks (heartbeat echo).
         client.onLinkControl = { [weak self] frame in
@@ -127,23 +133,27 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         self.startHeartbeat()
     }
 
-    func centralManager(_ central: CBCentralManager,
+    nonisolated func centralManager(_ central: CBCentralManager,
                         didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        heartbeatTimer?.invalidate()
-        heartbeatTimer = nil
-        gatt = nil
-        state = .disconnected(error)
-        // Re-enter scan cycle after a brief rest.
-        beginScanCycle()
+        Task { @MainActor in
+            heartbeatTimer?.invalidate()
+            heartbeatTimer = nil
+            gatt = nil
+            state = .disconnected(error)
+            // Re-enter scan cycle after a brief rest.
+            beginScanCycle()
+        }
     }
 
     private func startHeartbeat() {
         heartbeatTimer?.invalidate()
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: heartbeatInterval, repeats: true) { [weak self] _ in
-            guard let self, let g = self.gatt else { return }
-            // Heartbeat payload: 8-byte timestamp placeholder (device clock).
-            var payload = Data(count: 8)
-            g.write(payload, to: WearLinkUUID.linkControl)
+            Task { @MainActor in
+                guard let self, let g = self.gatt else { return }
+                // Heartbeat payload: 8-byte timestamp placeholder (device clock).
+                var payload = Data(count: 8)
+                g.write(payload, to: WearLinkUUID.linkControl)
+            }
         }
     }
 }
