@@ -55,10 +55,6 @@ final class HealthManager {
                 lastHeartRate = sample.value
             case .steps:
                 lastSteps = Int(sample.value)
-            case .spo2Percent:
-                lastSpo2 = sample.value
-            case .hrvMs:
-                lastHrv = sample.value
             case .calories:
                 lastCalories = sample.value
             case .distanceMeters:

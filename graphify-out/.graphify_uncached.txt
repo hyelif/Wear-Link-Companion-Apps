@@ -1,0 +1,14 @@
+/home/alif/Documents/wear_link/.github/workflows/build-ios.yml
+/home/alif/Documents/wear_link/CLAUDE.md
+/home/alif/Documents/wear_link/Optimization.md
+/home/alif/Documents/wear_link/README.md
+/home/alif/Documents/wear_link/Software-Structure.md
+/home/alif/Documents/wear_link/ios_app/README.md
+/home/alif/Documents/wear_link/ios_app/iOS-UI-Reconstruction.md
+/home/alif/Documents/wear_link/ios_app/project.yml
+/home/alif/Documents/wear_link/progress.md
+/home/alif/Documents/wear_link/protocol/GATT.md
+/home/alif/Documents/wear_link/protocol/README.md
+/home/alif/Documents/wear_link/protocol/codec.md
+/home/alif/Documents/wear_link/wear_app/analysis_options.yaml
+/home/alif/Documents/wear_link/wear_app/pubspec.yaml

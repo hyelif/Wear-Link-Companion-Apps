@@ -1,0 +1,1545 @@
+{
+  "nodes": [
+    {
+      "id": "wearlink-project",
+      "type": "concept",
+      "label": "WearLink Project",
+      "source_file": "README.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ble-gatt-protocol",
+      "type": "protocol",
+      "label": "BLE GATT Protocol",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ios-central-role",
+      "type": "concept",
+      "label": "iOS BLE Central Role",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "watch-peripheral-role",
+      "type": "concept",
+      "label": "Watch BLE Peripheral Role",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "wearlink-service",
+      "type": "protocol",
+      "label": "WearLink Service (0xFE01)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "device-info-char",
+      "type": "protocol",
+      "label": "DeviceInfo Characteristic (0xFE10)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "health-stream-char",
+      "type": "protocol",
+      "label": "HealthStream Characteristic (0xFE20)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "health-control-char",
+      "type": "protocol",
+      "label": "HealthControl Characteristic (0xFE21)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "call-event-char",
+      "type": "protocol",
+      "label": "CallEvent Characteristic (0xFE30)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "call-action-char",
+      "type": "protocol",
+      "label": "CallAction Characteristic (0xFE31)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "notification-char",
+      "type": "protocol",
+      "label": "Notification Characteristic (0xFE40)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "notif-action-char",
+      "type": "protocol",
+      "label": "NotifAction Characteristic (0xFE41)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "music-nowplaying-char",
+      "type": "protocol",
+      "label": "MusicNowPlaying Characteristic (0xFE50)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "music-command-char",
+      "type": "protocol",
+      "label": "MusicCommand Characteristic (0xFE51)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "link-control-char",
+      "type": "protocol",
+      "label": "LinkControl Characteristic (0xFE60)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ble-manager",
+      "type": "component",
+      "label": "BLEManager (CBCentralManager)",
+      "source_file": "ios_app/WearLink/BLE/BLEManager.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "gatt-client",
+      "type": "component",
+      "label": "GattClient (CBPeripheralDelegate)",
+      "source_file": "ios_app/WearLink/BLE/GattClient.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "packet-codec-ios",
+      "type": "class",
+      "label": "PacketCodec (iOS Swift)",
+      "source_file": "ios_app/WearLink/BLE/PacketCodec.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "proto-serialization",
+      "type": "class",
+      "label": "ProtoSerialization",
+      "source_file": "ios_app/WearLink/BLE/ProtoSerialization.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "call-controller",
+      "type": "component",
+      "label": "CallController (CallKit)",
+      "source_file": "ios_app/WearLink/Features/Call/CallController.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "notification-forwarder",
+      "type": "component",
+      "label": "NotificationForwarder",
+      "source_file": "ios_app/WearLink/Features/Notification/NotificationForwarder.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "music-controller",
+      "type": "component",
+      "label": "MusicController (MPNowPlayingInfoCenter)",
+      "source_file": "ios_app/WearLink/Features/Music/MusicController.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "health-view-model",
+      "type": "component",
+      "label": "HealthViewModel (HealthKit)",
+      "source_file": "ios_app/WearLink/Features/Health/HealthViewModel.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "app-container",
+      "type": "component",
+      "label": "AppContainer (DI Container)",
+      "source_file": "ios_app/WearLink/App/AppContainer.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ble-peripheral-service",
+      "type": "component",
+      "label": "BlePeripheralService (Kotlin)",
+      "source_file": "wear_app/android/app/src/main/kotlin/com/wearlink/app/BlePeripheralService.kt",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "health-collector",
+      "type": "component",
+      "label": "HealthCollector (Kotlin)",
+      "source_file": "wear_app/android/app/src/main/kotlin/com/wearlink/app/HealthCollector.kt",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ancs-client",
+      "type": "component",
+      "label": "AncsClient (Kotlin)",
+      "source_file": "wear_app/android/app/src/main/kotlin/com/wearlink/app/AncsClient.kt",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ancs-plugin",
+      "type": "component",
+      "label": "AncsPlugin (FlutterPlugin)",
+      "source_file": "wear_app/android/app/src/main/kotlin/com/wearlink/app/AncsPlugin.kt",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "health-services-plugin",
+      "type": "component",
+      "label": "HealthServicesPlugin (FlutterPlugin)",
+      "source_file": "wear_app/android/app/src/main/kotlin/com/wearlink/app/HealthServicesPlugin.kt",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "wearlink-ble-plugin",
+      "type": "component",
+      "label": "WearLinkBlePlugin (FlutterPlugin)",
+      "source_file": "wear_app/android/app/src/main/kotlin/com/wearlink/app/WearLinkBlePlugin.kt",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ble-peripheral-channel-dart",
+      "type": "class",
+      "label": "BlePeripheralChannel (Dart)",
+      "source_file": "wear_app/lib/platform/ble_peripheral_channel.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "health-services-channel-dart",
+      "type": "class",
+      "label": "HealthServicesChannel (Dart)",
+      "source_file": "wear_app/lib/platform/health_services_channel.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ancs-channel-dart",
+      "type": "class",
+      "label": "AncsChannel (Dart)",
+      "source_file": "wear_app/lib/platform/ancs_channel.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "gatt-client-dart",
+      "type": "class",
+      "label": "GattClient (Dart)",
+      "source_file": "wear_app/lib/ble/gatt_client.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "packet-codec-dart",
+      "type": "class",
+      "label": "PacketCodec (Dart)",
+      "source_file": "wear_app/lib/ble/packet_codec.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ble-signal",
+      "type": "class",
+      "label": "BleSignal (signals_dart)",
+      "source_file": "wear_app/lib/signals/ble_signal.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "health-signal",
+      "type": "class",
+      "label": "HealthSignal (signals_dart)",
+      "source_file": "wear_app/lib/signals/health_signal.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "call-signal",
+      "type": "class",
+      "label": "CallSignal (signals_dart)",
+      "source_file": "wear_app/lib/signals/call_signal.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "notification-signal",
+      "type": "class",
+      "label": "NotificationSignal (signals_dart)",
+      "source_file": "wear_app/lib/signals/notification_signal.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "music-signal",
+      "type": "class",
+      "label": "MusicSignal (signals_dart)",
+      "source_file": "wear_app/lib/signals/music_signal.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "health-screen",
+      "type": "component",
+      "label": "HealthScreen (Wear UI)",
+      "source_file": "wear_app/lib/features/health/health_screen.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "call-screen",
+      "type": "component",
+      "label": "CallScreen (Wear UI)",
+      "source_file": "wear_app/lib/features/call/call_screen.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "notification-screen",
+      "type": "component",
+      "label": "NotificationScreen (Wear UI)",
+      "source_file": "wear_app/lib/features/notification/notification_screen.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "music-screen",
+      "type": "component",
+      "label": "MusicScreen (Wear UI)",
+      "source_file": "wear_app/lib/features/music/music_screen.dart",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "core-bluetooth",
+      "type": "api",
+      "label": "CoreBluetooth Framework",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "callkit",
+      "type": "api",
+      "label": "CallKit Framework",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "healthkit",
+      "type": "api",
+      "label": "HealthKit Framework",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "mpnowplayinginfocenter",
+      "type": "api",
+      "label": "MPNowPlayingInfoCenter",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "mpremotecommandcenter",
+      "type": "api",
+      "label": "MPRemoteCommandCenter",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "health-services-api",
+      "type": "api",
+      "label": "Wear OS Health Services API",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "bluetoothgattserver",
+      "type": "api",
+      "label": "Android BluetoothGattServer",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "signals-dart",
+      "type": "api",
+      "label": "signals_dart (reactive state)",
+      "source_file": "wear_app/pubspec.yaml",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "protobuf",
+      "type": "protocol",
+      "label": "Protocol Buffers (wire format)",
+      "source_file": "protocol/README.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ancs",
+      "type": "protocol",
+      "label": "Apple Notification Center Service (ANCS)",
+      "source_file": "wear_app/android/app/src/main/kotlin/com/wearlink/app/AncsClient.kt",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "frame-layout",
+      "type": "protocol",
+      "label": "Frame Layout (seq:u16, flags:u8, len:u16, payload, crc8)",
+      "source_file": "protocol/codec.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "chunking-mechanism",
+      "type": "protocol",
+      "label": "Chunking Mechanism (continuation flag)",
+      "source_file": "protocol/codec.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "crc8-smbus",
+      "type": "protocol",
+      "label": "CRC-8/SMBUS (poly 0x07)",
+      "source_file": "protocol/codec.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "replay-protection",
+      "type": "protocol",
+      "label": "Replay Protection (nonce per action command)",
+      "source_file": "protocol/codec.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "bonding-le-secure-connections",
+      "type": "protocol",
+      "label": "Bonding via LE Secure Connections",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "duty-cycled-scan",
+      "type": "concept",
+      "label": "Duty-cycled BLE scanning (2s on / 8s off)",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "heartbeat-mechanism",
+      "type": "concept",
+      "label": "Heartbeat via LinkControl (30s interval)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ack-model",
+      "type": "concept",
+      "label": "Ack model (LinkControl seq echo, 3x retry with backoff)",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "uuid-mismatch-bug",
+      "type": "concept",
+      "label": "UUID Mismatch Between Platforms",
+      "source_file": "progress.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "platform-limitations-register",
+      "type": "concept",
+      "label": "Platform Limitations Register",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "notification-service-extension",
+      "type": "component",
+      "label": "NotificationServiceExtension (iOS)",
+      "source_file": "ios_app/project.yml",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "app-group-entitlement",
+      "type": "concept",
+      "label": "App Group Entitlement (group.com.wearlink.notification)",
+      "source_file": "Optimization.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "sidestore",
+      "type": "concept",
+      "label": "SideStore (.ipa resigning for testing)",
+      "source_file": "ios_app/README.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ci-cd-workflow",
+      "type": "file",
+      "label": "CI/CD Build Workflow",
+      "source_file": ".github/workflows/build-ios.yml",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "xcodegen",
+      "type": "concept",
+      "label": "XcodeGen (project generation)",
+      "source_file": "ios_app/project.yml",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "cocoapods",
+      "type": "api",
+      "label": "CocoaPods Dependency Manager",
+      "source_file": "ios_app/README.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "devices-list-view",
+      "type": "component",
+      "label": "DevicesListView (SwiftUI)",
+      "source_file": "ios_app/Views/Main/DevicesListView.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "device-card-view",
+      "type": "component",
+      "label": "DeviceCardView (SwiftUI)",
+      "source_file": "ios_app/Views/Main/DeviceCardView.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "device-details-view",
+      "type": "component",
+      "label": "DeviceDetailsView (SwiftUI)",
+      "source_file": "ios_app/Views/DeviceDetails/DeviceDetailsView.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "toggle-row",
+      "type": "component",
+      "label": "ToggleRow (SwiftUI component)",
+      "source_file": "ios_app/Views/Common/ToggleRow.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "device-icon-view",
+      "type": "component",
+      "label": "DeviceIconView (SwiftUI)",
+      "source_file": "ios_app/Views/Common/DeviceIconView.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "wearable-device-model",
+      "type": "class",
+      "label": "WearableDevice (Model)",
+      "source_file": "ios_app/WearLink/Models/WearableDevice.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "device-settings-model",
+      "type": "class",
+      "label": "DeviceSettings (Model)",
+      "source_file": "ios_app/WearLink/Models/WearableDevice.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "health-store",
+      "type": "component",
+      "label": "HealthStore (local cache + dedupe)",
+      "source_file": "ios_app/WearLink/Storage/HealthStore.swift",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "uuids-kotlin",
+      "type": "file",
+      "label": "Uuids.kt (UUID definitions)",
+      "source_file": "wear_app/android/app/src/main/kotlin/com/wearlink/app/Uuids.kt",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "android-manifest",
+      "type": "file",
+      "label": "AndroidManifest.xml",
+      "source_file": "wear_app/android/app/src/main/AndroidManifest.xml",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "optimization-report",
+      "type": "file",
+      "label": "Optimization & Verification Report",
+      "source_file": "Optimization.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "progress-tracker",
+      "type": "file",
+      "label": "Progress Tracker",
+      "source_file": "progress.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "software-structure",
+      "type": "file",
+      "label": "Software Architecture Document",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "gatt-contract-doc",
+      "type": "file",
+      "label": "GATT Protocol Document",
+      "source_file": "protocol/GATT.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "codec-doc",
+      "type": "file",
+      "label": "Codec Framing Document",
+      "source_file": "protocol/codec.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "proto-definitions",
+      "type": "file",
+      "label": "Protobuf Definitions",
+      "source_file": "protocol/proto/wearlink.proto",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "project-yml",
+      "type": "file",
+      "label": "XcodeGen Project Configuration",
+      "source_file": "ios_app/project.yml",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "pubspec-yaml",
+      "type": "file",
+      "label": "Flutter pubspec.yaml",
+      "source_file": "wear_app/pubspec.yaml",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "health-data-sync-flow",
+      "type": "concept",
+      "label": "Health Data Sync Flow",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "call-handling-flow",
+      "type": "concept",
+      "label": "Call Handling on Watch Flow",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "notification-forwarding-flow",
+      "type": "concept",
+      "label": "Notification Forwarding Flow",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "music-control-flow",
+      "type": "concept",
+      "label": "Music Control on Watch Flow",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "phase-9-connection-fixes",
+      "type": "concept",
+      "label": "Phase 9 - Connection Fixes (CRITICAL)",
+      "source_file": "progress.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "optimization-73-issues",
+      "type": "concept",
+      "label": "73 Issues Found in Code Audit",
+      "source_file": "Optimization.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "wearlink-entitlements",
+      "type": "file",
+      "label": "WearLink.entitlements",
+      "source_file": "ios_app/WearLink/Resources/WearLink.entitlements",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ios-info-plist",
+      "type": "file",
+      "label": "Info.plist",
+      "source_file": "ios_app/WearLink/Resources/Info.plist",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ios-ui-reconstruction-doc",
+      "type": "file",
+      "label": "iOS UI Reconstruction Plan",
+      "source_file": "ios_app/iOS-UI-Reconstruction.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "battery-optimization-strategy",
+      "type": "concept",
+      "label": "Battery Optimization Strategy",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "ota-health-data-relay",
+      "type": "concept",
+      "label": "Cloud Relay (open question)",
+      "source_file": "Software-Structure.md",
+      "confidence": "AMBIGUOUS"
+    },
+    {
+      "id": "main-activity",
+      "type": "component",
+      "label": "MainActivity (Wear OS)",
+      "source_file": "wear_app/android/app/src/main/kotlin/com/wearlink/app/MainActivity.kt",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "workmanager",
+      "type": "api",
+      "label": "WorkManager (Android)",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "flutter-platform",
+      "type": "concept",
+      "label": "Flutter Platform (Wear OS UI)",
+      "source_file": "Software-Structure.md",
+      "confidence": "EXTRACTED"
+    }
+  ],
+  "edges": [
+    {
+      "source": "wearlink-project",
+      "target": "ios-central-role",
+      "relation": "has-role",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-project",
+      "target": "watch-peripheral-role",
+      "relation": "has-role",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-project",
+      "target": "ble-gatt-protocol",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-project",
+      "target": "protobuf",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ios-central-role",
+      "target": "core-bluetooth",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "watch-peripheral-role",
+      "target": "bluetoothgattserver",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-service",
+      "target": "device-info-char",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-service",
+      "target": "health-stream-char",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-service",
+      "target": "health-control-char",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-service",
+      "target": "call-event-char",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-service",
+      "target": "call-action-char",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-service",
+      "target": "notification-char",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-service",
+      "target": "notif-action-char",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-service",
+      "target": "music-nowplaying-char",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-service",
+      "target": "music-command-char",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-service",
+      "target": "link-control-char",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-manager",
+      "target": "core-bluetooth",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-manager",
+      "target": "gatt-client",
+      "relation": "creates",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "gatt-client",
+      "target": "packet-codec-ios",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "gatt-client",
+      "target": "proto-serialization",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "call-controller",
+      "target": "callkit",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notification-forwarder",
+      "target": "notification-service-extension",
+      "relation": "communicates-with",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notification-forwarder",
+      "target": "app-group-entitlement",
+      "relation": "requires",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "music-controller",
+      "target": "mpnowplayinginfocenter",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "music-controller",
+      "target": "mpremotecommandcenter",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-view-model",
+      "target": "healthkit",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "app-container",
+      "target": "ble-manager",
+      "relation": "owns",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "app-container",
+      "target": "call-controller",
+      "relation": "owns",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "app-container",
+      "target": "notification-forwarder",
+      "relation": "owns",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "app-container",
+      "target": "music-controller",
+      "relation": "owns",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "app-container",
+      "target": "health-view-model",
+      "relation": "owns",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-peripheral-service",
+      "target": "bluetoothgattserver",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-peripheral-service",
+      "target": "wearlink-service",
+      "relation": "implements",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-collector",
+      "target": "health-services-api",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ancs-client",
+      "target": "ancs",
+      "relation": "implements",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ancs-client",
+      "target": "core-bluetooth",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-peripheral-channel-dart",
+      "target": "ble-peripheral-service",
+      "relation": "wraps",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-services-channel-dart",
+      "target": "health-collector",
+      "relation": "wraps",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ancs-channel-dart",
+      "target": "ancs-client",
+      "relation": "wraps",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-signal",
+      "target": "signals-dart",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-signal",
+      "target": "signals-dart",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "call-signal",
+      "target": "signals-dart",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notification-signal",
+      "target": "signals-dart",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "music-signal",
+      "target": "signals-dart",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-stream-char",
+      "target": "health-data-sync-flow",
+      "relation": "enables",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-control-char",
+      "target": "health-data-sync-flow",
+      "relation": "enables",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "call-event-char",
+      "target": "call-handling-flow",
+      "relation": "enables",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "call-action-char",
+      "target": "call-handling-flow",
+      "relation": "enables",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notification-char",
+      "target": "notification-forwarding-flow",
+      "relation": "enables",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notif-action-char",
+      "target": "notification-forwarding-flow",
+      "relation": "enables",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "music-nowplaying-char",
+      "target": "music-control-flow",
+      "relation": "enables",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "music-command-char",
+      "target": "music-control-flow",
+      "relation": "enables",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "link-control-char",
+      "target": "heartbeat-mechanism",
+      "relation": "enables",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "link-control-char",
+      "target": "ack-model",
+      "relation": "enables",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "frame-layout",
+      "target": "chunking-mechanism",
+      "relation": "supports",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "frame-layout",
+      "target": "crc8-smbus",
+      "relation": "includes",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "packet-codec-ios",
+      "target": "frame-layout",
+      "relation": "implements",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "packet-codec-dart",
+      "target": "frame-layout",
+      "relation": "implements",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "call-action-char",
+      "target": "replay-protection",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notif-action-char",
+      "target": "replay-protection",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "music-command-char",
+      "target": "replay-protection",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-data-sync-flow",
+      "target": "health-collector",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-data-sync-flow",
+      "target": "health-view-model",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-data-sync-flow",
+      "target": "health-store",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "call-handling-flow",
+      "target": "call-controller",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "call-handling-flow",
+      "target": "call-signal",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notification-forwarding-flow",
+      "target": "notification-forwarder",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notification-forwarding-flow",
+      "target": "notification-signal",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notification-forwarding-flow",
+      "target": "ancs-client",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "music-control-flow",
+      "target": "music-controller",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "music-control-flow",
+      "target": "music-signal",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-manager",
+      "target": "call-event-char",
+      "relation": "writes-to",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-manager",
+      "target": "notification-char",
+      "relation": "writes-to",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-manager",
+      "target": "music-nowplaying-char",
+      "relation": "writes-to",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-manager",
+      "target": "health-stream-char",
+      "relation": "subscribes-to",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-manager",
+      "target": "device-info-char",
+      "relation": "reads-from",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-peripheral-service",
+      "target": "health-stream-char",
+      "relation": "notifies",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-peripheral-service",
+      "target": "call-action-char",
+      "relation": "receives-notify",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-peripheral-service",
+      "target": "notif-action-char",
+      "relation": "receives-notify",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-peripheral-service",
+      "target": "music-command-char",
+      "relation": "receives-notify",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "device-info-char",
+      "target": "watch-peripheral-role",
+      "relation": "direction",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-stream-char",
+      "target": "watch-peripheral-role",
+      "relation": "direction",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "call-action-char",
+      "target": "watch-peripheral-role",
+      "relation": "direction",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notif-action-char",
+      "target": "watch-peripheral-role",
+      "relation": "direction",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "music-command-char",
+      "target": "watch-peripheral-role",
+      "relation": "direction",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-control-char",
+      "target": "ios-central-role",
+      "relation": "direction",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "call-event-char",
+      "target": "ios-central-role",
+      "relation": "direction",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notification-char",
+      "target": "ios-central-role",
+      "relation": "direction",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "music-nowplaying-char",
+      "target": "ios-central-role",
+      "relation": "direction",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "link-control-char",
+      "target": "ios-central-role",
+      "relation": "direction",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "link-control-char",
+      "target": "watch-peripheral-role",
+      "relation": "direction",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-manager",
+      "target": "duty-cycled-scan",
+      "relation": "implements",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-peripheral-service",
+      "target": "battery-optimization-strategy",
+      "relation": "implements",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ci-cd-workflow",
+      "target": "xcodegen",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ci-cd-workflow",
+      "target": "cocoapods",
+      "relation": "uses",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ci-cd-workflow",
+      "target": "sidestore",
+      "relation": "targets",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "project-yml",
+      "target": "notification-service-extension",
+      "relation": "defines",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "project-yml",
+      "target": "xcodegen",
+      "relation": "input-for",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "pubspec-yaml",
+      "target": "signals-dart",
+      "relation": "depends-on",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "pubspec-yaml",
+      "target": "protobuf",
+      "relation": "depends-on",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "software-structure",
+      "target": "platform-limitations-register",
+      "relation": "documents",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "optimization-report",
+      "target": "optimization-73-issues",
+      "relation": "documents",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "progress-tracker",
+      "target": "phase-9-connection-fixes",
+      "relation": "tracks",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "progress-tracker",
+      "target": "uuid-mismatch-bug",
+      "relation": "identifies",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "uuid-mismatch-bug",
+      "target": "ble-peripheral-service",
+      "relation": "affects",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "uuid-mismatch-bug",
+      "target": "ble-manager",
+      "relation": "affects",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "uuid-mismatch-bug",
+      "target": "gatt-client-dart",
+      "relation": "affects",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "bonding-le-secure-connections",
+      "target": "wearlink-service",
+      "relation": "secures",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "devices-list-view",
+      "target": "ble-manager",
+      "relation": "reads-state-from",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "devices-list-view",
+      "target": "device-card-view",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "device-details-view",
+      "target": "toggle-row",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "device-details-view",
+      "target": "device-settings-model",
+      "relation": "configures",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "device-details-view",
+      "target": "device-icon-view",
+      "relation": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearable-device-model",
+      "target": "device-info-char",
+      "relation": "maps-to",
+      "confidence": "INFERRED"
+    },
+    {
+      "source": "ancs",
+      "target": "notification-forwarding-flow",
+      "relation": "enables",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notification-service-extension",
+      "target": "app-group-entitlement",
+      "relation": "requires",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notification-service-extension",
+      "target": "sidestore",
+      "relation": "blocked-on",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-signal",
+      "target": "health-screen",
+      "relation": "powers",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "call-signal",
+      "target": "call-screen",
+      "relation": "powers",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "notification-signal",
+      "target": "notification-screen",
+      "relation": "powers",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "music-signal",
+      "target": "music-screen",
+      "relation": "powers",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-collector",
+      "target": "health-services-plugin",
+      "relation": "bridged-by",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "health-services-plugin",
+      "target": "health-services-channel-dart",
+      "relation": "bridges-to",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ancs-client",
+      "target": "ancs-plugin",
+      "relation": "bridged-by",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ancs-plugin",
+      "target": "ancs-channel-dart",
+      "relation": "bridges-to",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-peripheral-service",
+      "target": "wearlink-ble-plugin",
+      "relation": "bridged-by",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-ble-plugin",
+      "target": "ble-peripheral-channel-dart",
+      "relation": "bridges-to",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "gatt-contract-doc",
+      "target": "proto-definitions",
+      "relation": "references",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "codec-doc",
+      "target": "proto-definitions",
+      "relation": "references",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "flutter-platform",
+      "target": "watch-peripheral-role",
+      "relation": "hosts",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "main-activity",
+      "target": "wearlink-ble-plugin",
+      "relation": "registers",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "main-activity",
+      "target": "health-services-plugin",
+      "relation": "registers",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "main-activity",
+      "target": "ancs-plugin",
+      "relation": "registers",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "wearlink-project",
+      "target": "sidestore",
+      "relation": "distributed-via",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "optimization-73-issues",
+      "target": "phase-9-connection-fixes",
+      "relation": "led-to",
+      "confidence": "INFERRED"
+    },
+    {
+      "source": "ble-manager",
+      "target": "link-control-char",
+      "relation": "writes-to",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "ble-manager",
+      "target": "health-control-char",
+      "relation": "writes-to",
+      "confidence": "EXTRACTED"
+    }
+  ],
+  "hyperedges": [],
+  "input_tokens": 0,
+  "output_tokens": 0
+}
