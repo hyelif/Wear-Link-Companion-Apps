@@ -36,6 +36,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     weak var callController: CallController?
     weak var notificationForwarder: NotificationForwarder?
     weak var musicController: MusicController?
+    weak var healthManager: HealthManager?
 
     private let central: CBCentralManager
     private var scanTimer: Timer?
@@ -137,6 +138,12 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
                     self.musicController?.dispatchCommand(command)
                 }
             }
+            client.onPayload[WearLinkUUID.healthStream] = { [weak self] data in
+                Task { @MainActor in
+                    guard let self, let frame = ProtoCodec.decodeHealthFrame(from: data) else { return }
+                    self.healthManager?.ingest(frame)
+                }
+            }
             self.gatt = client
             self.state = .connected
             peripheral.delegate = client
@@ -151,6 +158,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             heartbeatTimer?.invalidate()
             heartbeatTimer = nil
             gatt = nil
+            healthManager?.clear()
             state = .disconnected(error)
             // Re-enter scan cycle after a brief rest.
             beginScanCycle()

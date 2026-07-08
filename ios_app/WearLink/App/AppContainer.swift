@@ -9,6 +9,7 @@ final class AppContainer {
     let call: CallController
     let notification: NotificationForwarder
     let music: MusicController
+    let health: HealthManager
 
     /// Current paired device info (populated via BLE).
     var device: WearableDevice?
@@ -21,6 +22,7 @@ final class AppContainer {
         let ble = BLEManager()
         self.ble = ble
         self.call = CallController(ble: ble)
+        self.health = HealthManager(ble: ble)
         self.notification = NotificationForwarder(ble: ble)
         self.music = MusicController(ble: ble)
 
@@ -30,6 +32,7 @@ final class AppContainer {
         ble.callController = self.call
         ble.notificationForwarder = self.notification
         ble.musicController = self.music
+        ble.healthManager = self.health
     }
 
     func start() async {
