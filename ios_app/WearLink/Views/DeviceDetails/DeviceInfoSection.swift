@@ -1,17 +1,28 @@
 import SwiftUI
 
 struct DeviceInfoSection: View {
+    @Environment(AppContainer.self) private var container
+
     var body: some View {
-        List {
-            infoRow(label: "Device Name", value: "Galaxy Watch7 (A64Y)")
-            infoRow(label: "Device ID", value: "A64Y-7B3F-2C91")
-            infoRow(label: "Product Name", value: "SM-R935")
-            infoRow(label: "Model Name", value: "Galaxy Watch7")
-            infoRow(label: "Android Version", value: "14")
-            infoRow(label: "App Version", value: "1.0.0")
-            infoRow(label: "Manufacturer", value: "Samsung")
-            infoRow(label: "Battery Level", value: "85%")
-            infoRow(label: "Is Charging", value: "No")
+        Group {
+            if let device = container.device {
+                List {
+                    infoRow(label: "Device Name", value: device.name)
+                    infoRow(label: "Device ID", value: device.id)
+                    infoRow(label: "Model Name", value: device.model)
+                    infoRow(label: "Android Version", value: device.androidVersion)
+                    infoRow(label: "App Version", value: device.appVersion)
+                    infoRow(label: "Battery Level", value: "\(device.batteryLevel)%")
+                    infoRow(label: "Is Charging", value: device.isCharging ? "Yes" : "No")
+                    infoRow(label: "Last Seen", value: device.lastSeen.formatted(date: .abbreviated, time: .shortened))
+                }
+            } else {
+                ContentUnavailableView(
+                    "No Device Data",
+                    systemImage: "info.circle",
+                    description: Text("Device information will appear here when connected.")
+                )
+            }
         }
         .navigationTitle("Device Information")
         .navigationBarTitleDisplayMode(.inline)
@@ -31,5 +42,6 @@ struct DeviceInfoSection: View {
 #Preview {
     NavigationStack {
         DeviceInfoSection()
+            .environment(AppContainer())
     }
 }

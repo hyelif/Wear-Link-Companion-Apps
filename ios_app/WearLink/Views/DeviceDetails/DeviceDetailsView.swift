@@ -2,25 +2,43 @@ import SwiftUI
 
 struct DeviceDetailsView: View {
     @Environment(AppContainer.self) private var container
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        Group {
+            if let device = container.device {
+                detailsList(device: device)
+            } else {
+                ContentUnavailableView(
+                    "No Device",
+                    systemImage: "applewatch.slash",
+                    description: Text("Connect to a watch to see device details.")
+                )
+            }
+        }
+        .navigationTitle("Device Details")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private func detailsList(device: WearableDevice) -> some View {
         List {
             // Device header
             Section {
                 VStack(spacing: 12) {
                     DeviceIconView(size: 80)
 
-                    Text("Galaxy Watch7 (A64Y)")
+                    Text(device.name)
                         .font(.title2)
                         .fontWeight(.bold)
 
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(isConnected ? Color.green : Color.secondary)
+                            .fill(device.isConnected ? Color.green : Color.secondary)
                             .frame(width: 10, height: 10)
-                        Text(isConnected ? "Connected" : "Disconnected")
+                        Text(device.isConnected ? "Connected" : "Disconnected")
                             .font(.subheadline)
-                            .foregroundStyle(isConnected ? .green : .secondary)
+                            .foregroundStyle(device.isConnected ? .green : .secondary)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -71,6 +89,7 @@ struct DeviceDetailsView: View {
             Section {
                 Button {
                     // TODO: Send find-device signal to watch
+                    print("[DeviceDetails] Find My Watch tapped")
                 } label: {
                     HStack {
                         Image(systemName: "bell.fill")
@@ -91,7 +110,8 @@ struct DeviceDetailsView: View {
             // Device Management section
             Section {
                 Button(role: .destructive) {
-                    // TODO: Confirm and forget device
+                    container.disconnectDevice()
+                    dismiss()
                 } label: {
                     HStack {
                         Image(systemName: "trash")
@@ -111,13 +131,6 @@ struct DeviceDetailsView: View {
                 }
             }
         }
-        .navigationTitle("Device Details")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var isConnected: Bool {
-        if case .connected = container.ble.state { return true }
-        return false
     }
 }
 

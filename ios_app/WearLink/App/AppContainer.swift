@@ -33,6 +33,7 @@ final class AppContainer {
         ble.notificationForwarder = self.notification
         ble.musicController = self.music
         ble.healthManager = self.health
+        ble.appContainer = self
     }
 
     func start() async {
@@ -50,5 +51,12 @@ final class AppContainer {
 
         // Begin BLE scanning for the watch.
         ble.startScanning()
+    }
+
+    /// Disconnect the watch and clear the device model.
+    func disconnectDevice() {
+        ble.disconnect()
+        device = nil
+        settings = DeviceSettings()
     }
 }

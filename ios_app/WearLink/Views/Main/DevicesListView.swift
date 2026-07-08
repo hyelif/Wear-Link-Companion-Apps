@@ -9,29 +9,48 @@ struct DevicesListView: View {
                 VStack(spacing: 20) {
                     // Device card section
                     VStack(spacing: 12) {
-                        // Connected device card
-                        NavigationLink(destination: DeviceDetailsView()) {
-                            DeviceCardView(
-                                deviceName: "Galaxy Watch7 (A64Y)",
-                                deviceVersion: "Android 14 • One UI 6 Watch",
-                                batteryLevel: batteryLevel,
-                                isConnected: isConnected,
-                                isCharging: false
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        // Health data sync banner
-                        if isConnected {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                    .foregroundStyle(.green)
-                                Text("Health data sync completed")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
+                        if let device = container.device {
+                            // Connected device card
+                            NavigationLink(destination: DeviceDetailsView()) {
+                                DeviceCardView(
+                                    deviceName: device.name,
+                                    deviceVersion: "\(device.androidVersion) • Wear OS",
+                                    batteryLevel: device.batteryLevel,
+                                    isConnected: device.isConnected,
+                                    isCharging: device.isCharging
+                                )
                             }
-                            .padding(.horizontal, 4)
+                            .buttonStyle(.plain)
+
+                            // Health data sync banner
+                            if device.isConnected {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                        .foregroundStyle(.green)
+                                    Text("Health data sync completed")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 4)
+                            }
+                        } else {
+                            // No device placeholder
+                            VStack(spacing: 12) {
+                                DeviceIconView(size: 80)
+                                Text("No Device Connected")
+                                    .font(.headline)
+                                    .foregroundStyle(.secondary)
+                                Text("Open WearLink on your watch\nand wait for automatic connection")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.tertiary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 32)
+                            .background(Color(.systemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
                         }
                     }
 
@@ -64,6 +83,7 @@ struct DevicesListView: View {
                 }
                 .padding()
             }
+            .frame(maxHeight: .infinity, alignment: .top)
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Devices")
             .toolbar {
@@ -75,16 +95,6 @@ struct DevicesListView: View {
                 }
             }
         }
-    }
-
-    private var isConnected: Bool {
-        if case .connected = container.ble.state { return true }
-        return false
-    }
-
-    private var batteryLevel: Int {
-        // TODO: read from BLE device info when available
-        85
     }
 }
 

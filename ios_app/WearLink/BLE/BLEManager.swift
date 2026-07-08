@@ -37,6 +37,8 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     weak var notificationForwarder: NotificationForwarder?
     weak var musicController: MusicController?
     weak var healthManager: HealthManager?
+    /// Set by AppContainer so BLEManager can update the device model on incoming data.
+    weak var appContainer: AppContainer?
 
     private let central: CBCentralManager
     private var scanTimer: Timer?
@@ -56,6 +58,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
 
     func startScanning() {
         guard central.state == .poweredOn else { return }
+        state = .poweredOn
         beginScanCycle()
     }
 
@@ -78,19 +81,38 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
 
     nonisolated func centralManagerDidUpdateState(_ c: CBCentralManager) {
         Task { @MainActor in
-            if c.state == .poweredOn {
+            switch c.state {
+            case .poweredOn:
+                state = .poweredOn
                 startScanning()
-            } else {
+            case .poweredOff:
                 state = .poweredOff
-                scanTimer?.invalidate()
-                restTimer?.invalidate()
-                heartbeatTimer?.invalidate()
-                scanTimer = nil
-                restTimer = nil
-                heartbeatTimer = nil
-                gatt = nil
+                invalidateAll()
+            case .unauthorized:
+                state = .poweredOff
+                print("[BLE] Bluetooth unauthorized — grant Bluetooth permission in Settings")
+                invalidateAll()
+            case .unsupported:
+                state = .poweredOff
+                print("[BLE] Bluetooth unsupported on this device")
+                invalidateAll()
+            case .resetting:
+                state = .poweredOff
+                invalidateAll()
+            case .unknown:
+                break
+            @unknown default:
+                break
             }
         }
+    }
+
+    private func invalidateAll() {
+        scanTimer?.invalidate(); scanTimer = nil
+        restTimer?.invalidate(); restTimer = nil
+        heartbeatTimer?.invalidate(); heartbeatTimer = nil
+        gatt = nil
+        state = .poweredOff
     }
 
     nonisolated func centralManager(_ central: CBCentralManager,
@@ -149,9 +171,38 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             peripheral.delegate = client
             client.discoverServices()
             self.startHeartbeat()
+            // Register device info handler — decode FE10 notify payload into WearableDevice.
+            client.onPayload[WearLinkUUID.deviceInfo] = { [weak self] data in
+                Task { @MainActor in
+                    guard let self, let info = ProtoCodec.decodeDeviceInfo(from: data) else { return }
+                    // Map BLE DeviceInfo proto to the WearableDevice model.
+                    let device = WearableDevice(
+                        id: "watch-001",
+                        name: info.model,
+                        model: info.model,
+                        androidVersion: info.firmware,
+                        appVersion: "1.0.0",
+                        batteryLevel: Int(info.batteryPercent),
+                        isCharging: false,
+                        isConnected: true,
+                        lastSeen: Date()
+                    )
+                    // Update the AppContainer's device — this triggers @Observable view refresh.
+                    self.appContainer?.device = device
+                }
+            }
             // Notify feature controllers that a new BLE connection is established.
             NotificationCenter.default.post(name: .bleDidReconnect, object: nil)
         }
+    }
+
+    /// Disconnect from the current peripheral.
+    func disconnect() {
+        guard let gatt else { return }
+        gatt.peripheral.delegate = nil
+        central.cancelPeripheralConnection(gatt.peripheral)
+        gatt = nil
+        state = .disconnected(nil)
     }
 
     nonisolated func centralManager(_ central: CBCentralManager,
