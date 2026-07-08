@@ -46,6 +46,8 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     private var heartbeatTimer: Timer?
     private let scanOn: TimeInterval = 2.0
     private let scanOff: TimeInterval = 8.0
+    private let scanOffMax: TimeInterval = 120.0
+    private var scanFailureCount: Int = 0
     private let heartbeatInterval: TimeInterval = 30.0
 
     override init() {
@@ -58,7 +60,6 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
 
     func startScanning() {
         guard central.state == .poweredOn else { return }
-        state = .poweredOn
         beginScanCycle()
     }
 
@@ -71,7 +72,11 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         scanTimer = Timer.scheduledTimer(withTimeInterval: scanOn, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.central.stopScan()
-            self.restTimer = Timer.scheduledTimer(withTimeInterval: self.scanOff, repeats: false) { [weak self] _ in
+            // Exponential backoff: if no device found, progressively increase rest
+            // period up to scanOffMax (2 min) to save battery.
+            let rest = min(self.scanOff * pow(2.0, Double(self.scanFailureCount)), self.scanOffMax)
+            self.scanFailureCount += 1
+            self.restTimer = Timer.scheduledTimer(withTimeInterval: rest, repeats: false) { [weak self] _ in
                 Task { @MainActor in
                     self?.beginScanCycle()
                 }
@@ -83,7 +88,6 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         Task { @MainActor in
             switch c.state {
             case .poweredOn:
-                state = .poweredOn
                 startScanning()
             case .poweredOff:
                 state = .poweredOff
@@ -112,6 +116,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         restTimer?.invalidate(); restTimer = nil
         heartbeatTimer?.invalidate(); heartbeatTimer = nil
         gatt = nil
+        scanFailureCount = 0
         state = .poweredOff
     }
 
@@ -121,6 +126,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         Task { @MainActor in
             central.stopScan()
             scanTimer?.invalidate(); restTimer?.invalidate()
+            scanFailureCount = 0  // Reset backoff on discovery
             state = .connecting
             central.connect(peripheral, options: nil)
         }
@@ -198,11 +204,11 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
 
     /// Disconnect from the current peripheral.
     func disconnect() {
-        guard let gatt else { return }
-        gatt.peripheral.delegate = nil
-        central.cancelPeripheralConnection(gatt.peripheral)
-        gatt = nil
-        state = .disconnected(nil)
+        guard let p = gatt?.peripheral else { return }
+        p.delegate = nil
+        central.cancelPeripheralConnection(p)
+        self.gatt = nil
+        state = .disconnected(nil as Error?)
     }
 
     nonisolated func centralManager(_ central: CBCentralManager,
@@ -224,7 +230,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             Task { @MainActor in
                 guard let self, let g = self.gatt else { return }
                 // Heartbeat payload: 8-byte timestamp placeholder (device clock).
-                var payload = Data(count: 8)
+                let payload = Data(count: 8)
                 g.write(payload, to: WearLinkUUID.linkControl)
             }
         }
