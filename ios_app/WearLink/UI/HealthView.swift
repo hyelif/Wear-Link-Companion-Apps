@@ -116,7 +116,7 @@ private struct MetricCard: View {
                 .foregroundStyle(.secondary)
 
             if let value {
-                HStack(alignment: .firstBaseline, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 2) {
                     Text(value)
                         .font(.title2).fontWeight(.bold)
                         .monospacedDigit()
