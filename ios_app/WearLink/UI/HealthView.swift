@@ -42,20 +42,6 @@ struct HealthView: View {
                         color: .blue
                     )
                     MetricCard(
-                        icon: "lungs.fill",
-                        label: "SpO₂",
-                        value: container.health.lastSpo2.map { String(format: "%.0f", $0) },
-                        unit: "%",
-                        color: .teal
-                    )
-                    MetricCard(
-                        icon: "waveform.path.ecg",
-                        label: "HRV",
-                        value: container.health.lastHrv.map { String(format: "%.0f", $0) },
-                        unit: "ms",
-                        color: .purple
-                    )
-                    MetricCard(
                         icon: "flame.fill",
                         label: "Calories",
                         value: container.health.lastCalories.map { String(format: "%.0f", $0) },
@@ -66,7 +52,7 @@ struct HealthView: View {
                         icon: "map.fill",
                         label: "Distance",
                         value: container.health.lastDistance.map { distanceStr($0) },
-                        unit: "",
+                        unit: container.health.lastDistance.map { $0 >= 1000 ? "km" : "m" } ?? "",
                         color: .green
                     )
                 }

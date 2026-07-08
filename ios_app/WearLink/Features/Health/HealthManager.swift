@@ -13,8 +13,6 @@ final class HealthManager {
 
     private(set) var lastHeartRate: Double?
     private(set) var lastSteps: Int?
-    private(set) var lastSpo2: Double?
-    private(set) var lastHrv: Double?
     private(set) var lastCalories: Double?
     private(set) var lastDistance: Double?
     /// Timestamp of the most recent `HealthFrame` received.
@@ -65,10 +63,7 @@ final class HealthManager {
                 lastCalories = sample.value
             case .distanceMeters:
                 lastDistance = sample.value
-            case .sleep:
-                // Sleep is a complex type; Phase 2 handling.
-                break
-            case .typeUnspecified:
+            case .spo2Percent, .hrvMs, .sleep, .typeUnspecified:
                 break
             }
         }
@@ -78,8 +73,6 @@ final class HealthManager {
     func clear() {
         lastHeartRate = nil
         lastSteps = nil
-        lastSpo2 = nil
-        lastHrv = nil
         lastCalories = nil
         lastDistance = nil
         lastUpdate = nil

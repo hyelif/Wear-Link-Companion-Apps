@@ -78,10 +78,11 @@ final class NotificationForwarder: NSObject {
         self.sharedDefaults = UserDefaults(suiteName: NotificationBridge.appGroupIdentifier)
         super.init()
 
-        // Register the BLE handler for incoming NotifAction from the watch.
-        // If GattClient is not yet available, the handler is set once it connects
-        // (re-registered before each forward).
-        registerNotificationActionHandler()
+        // NOTE: BLE handler for incoming NotifAction is registered by
+        // BLEManager.didConnect() -> onPayload[notificationAction], which
+        // dispatches to notificationForwarder?.handleAction(action). The
+        // handler is re-registered on every connect, so no local registration
+        // is needed here.
 
         // Set up the app group bridge to receive notifications from the extension.
         setupNotificationBridge()
@@ -146,19 +147,6 @@ final class NotificationForwarder: NSObject {
             handleReply(notifId: action.notifId, replyText: action.replyText)
         case .actionUnspecified:
             print("[NotificationForwarder] Ignoring NotifAction with unspecified action")
-        }
-    }
-
-    // MARK: - BLE Action Handler Registration
-
-    /// Registers (or re-registers) the NotifAction handler on the current GattClient.
-    /// Safe to call even when gatt is nil — the handler is set when available.
-    private func registerNotificationActionHandler() {
-        ble.gatt?.onPayload[WearLinkUUID.notificationAction] = { [weak self] data in
-            guard let self, let action = ProtoCodec.decodeNotifAction(from: data) else { return }
-            Task { @MainActor in
-                self.handleAction(action)
-            }
         }
     }
 

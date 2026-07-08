@@ -9,17 +9,17 @@ import 'package:wear_app/platform/ble_peripheral_channel.dart';
 
 /// Mirror of ios_app BluetoothUUIDs.swift / protocol/GATT.md.
 class GattUuid {
-  static const service = '0000fe01-0000-1000-8000-00805f9b34fb';
-  static const deviceInfo = '0000fe10-0000-1000-8000-00805f9b34fb';
-  static const healthStream = '0000fe20-0000-1000-8000-00805f9b34fb';
-  static const healthControl = '0000fe21-0000-1000-8000-00805f9b34fb';
-  static const callEvent = '0000fe30-0000-1000-8000-00805f9b34fb';
-  static const callAction = '0000fe31-0000-1000-8000-00805f9b34fb';
-  static const notification = '0000fe40-0000-1000-8000-00805f9b34fb';
-  static const notificationAction = '0000fe41-0000-1000-8000-00805f9b34fb';
-  static const musicNowPlaying = '0000fe50-0000-1000-8000-00805f9b34fb';
-  static const musicCommand = '0000fe51-0000-1000-8000-00805f9b34fb';
-  static const linkControl = '0000fe60-0000-1000-8000-00805f9b34fb';
+  static const service = 'fe012f26-7d24-4287-98cc-736bc4d49a61';
+  static const deviceInfo = 'fe102f26-7d24-4287-98cc-736bc4d49a61';
+  static const healthStream = 'fe202f26-7d24-4287-98cc-736bc4d49a61';
+  static const healthControl = 'fe212f26-7d24-4287-98cc-736bc4d49a61';
+  static const callEvent = 'fe302f26-7d24-4287-98cc-736bc4d49a61';
+  static const callAction = 'fe312f26-7d24-4287-98cc-736bc4d49a61';
+  static const notification = 'fe402f26-7d24-4287-98cc-736bc4d49a61';
+  static const notificationAction = 'fe412f26-7d24-4287-98cc-736bc4d49a61';
+  static const musicNowPlaying = 'fe502f26-7d24-4287-98cc-736bc4d49a61';
+  static const musicCommand = 'fe512f26-7d24-4287-98cc-736bc4d49a61';
+  static const linkControl = 'fe602f26-7d24-4287-98cc-736bc4d49a61';
 }
 
 class GattClient {

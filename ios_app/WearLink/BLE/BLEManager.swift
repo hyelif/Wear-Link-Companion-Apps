@@ -149,6 +149,8 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             peripheral.delegate = client
             client.discoverServices()
             self.startHeartbeat()
+            // Notify feature controllers that a new BLE connection is established.
+            NotificationCenter.default.post(name: .bleDidReconnect, object: nil)
         }
     }
 

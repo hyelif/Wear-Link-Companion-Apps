@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:signals/signals_flutter.dart';
 
@@ -14,6 +17,7 @@ import 'package:wear_app/signals/call_signal.dart';
 import 'package:wear_app/signals/health_signal.dart';
 import 'package:wear_app/signals/music_signal.dart';
 import 'package:wear_app/signals/notification_signal.dart';
+import 'package:wear_app/gen/wearlink.pb.dart';
 
 late final BleSignal bleSignal;
 late final GattClient gatt;
@@ -51,6 +55,19 @@ void main() {
 
   healthSignal = HealthSignal(HealthServicesChannel());
   healthSignal.start();
+
+  // Broadcast health data to the phone every 60 seconds.
+  Timer.periodic(const Duration(seconds: 60), (_) {
+    final samples = healthSignal.drainBuffer();
+    if (samples.isEmpty) return;
+    final frame = HealthFrame(
+      sequence: 0,
+      samples: samples,
+      compressed: false,
+    );
+    final payload = frame.writeToBuffer();
+    gatt.send(GattUuid.healthStream, Uint8List.fromList(payload));
+  });
 
   ancsChannel = AncsChannel();
   ancsChannel.start();

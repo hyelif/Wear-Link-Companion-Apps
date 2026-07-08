@@ -3,7 +3,7 @@
 > Source of truth for project status. Update after each work session.
 > Architecture spec: see `Software-Structure.md`.
 
-Last updated: 2026-07-07 (Phase 7 complete — wear_app flutter analyze clean, 9/9 tests pass)
+Last updated: 2026-07-08 (Phase 8 — comprehensive review + improvement plan)
 
 ---
 
@@ -136,20 +136,42 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked by
 - [x] Fix CallController.swift (deinit, dead code removal)
 - [x] Fix CI/CD workflow (signing config, Xcode version pinning)
 
-### Phase 8 — Battery hardening
-- [ ] Tune advertising intervals (idle vs active)
-- [ ] Tune connection interval + slave latency
-- [ ] Phone scan duty-cycle (2 s on / 8 s off)
-- [ ] Coalesce events; batch writes
-- [ ] WorkManager scheduling for watch periodic sync (Doze-aware)
-- [ ] 24 h battery instrumentation both devices → log below
+### Phase 8 — Comprehensive Review & Improvement Plan
+- [x] 6-agent comprehensive review (iOS + Wear OS + protocol + research)
+- [x] Identified 23 issues across 5 priority levels
+- [x] Documented findings in progress.md
 
-### Phase 9 — Polish & ship
-- [ ] Error handling + reconnect UX
-- [ ] Settings (sample interval, sync on charger only, etc.)
-- [ ] Accessibility + small-screen layout pass
-- [ ] App Store / Play (Wear OS) review prep
-- [ ] README + user-facing docs
+### Phase 9 — Connection Fixes (CRITICAL — BLE does not work)
+- [ ] **P1: Fix UUID mismatch** — Kotlin uses custom base `96812f26-...`, iOS/Dart use SIG base `0000XXXX-...`. Watch advertises one UUID, phone scans for another → devices never see each other. Fix: standardize all 3 platforms on one UUID base.
+- [ ] **P1: Fix health data never sent** — `drainBuffer()` never called on watch. Fix: add periodic timer that builds `HealthFrame` proto and sends to `FE20`.
+- [ ] **P1: Fix `assumeIsolated` in deinit** — NotificationForwarder + MusicController use `MainActor.assumeIsolated` in deinit; crashes if last ref released off main thread. Fix: capture values + `Task { @MainActor in }`.
+- [ ] **P1: Remove dead handler registration** — `NotificationForwarder.registerNotificationActionHandler()` called when `gatt` is nil → no-op. BLEManager already handles this.
+
+### Phase 10 — Health Data Display
+- [ ] **P2: Remove SpO2/HRV cards** — Health Services 1.1.0 doesn't support these. Remove or label "not available".
+- [ ] **P2: Fix distance unit** — Show "km" when distance ≥ 1000m.
+- [ ] **P2: Implement health data pipeline** — Watch-side timer to broadcast HealthFrame over BLE. (See P1)
+- [ ] **P2: Add "Last updated" timestamp** — Show when health data was last received.
+
+### Phase 11 — Stability
+- [ ] **P3: Post `bleDidReconnect` notification** — Defined but never posted. Fix: post from BLEManager on reconnect.
+- [ ] **P3: Add reconnection backoff** — Fixed 2s/8s scan drains battery when watch out of range. Fix: exponential backoff (2s, 4s, 8s, 16s, max 30s).
+- [ ] **P3: Fix MTU mismatch** — Kotlin ignores MTU changes, iOS negotiates dynamically. Fix: surface MTU to Kotlin.
+- [ ] **P3: Add heartbeat validation** — iOS sends heartbeat but never confirms receipt. Fix: track seq on echo, reconnect on missed heartbeats.
+
+### Phase 12 — Feature Improvements
+- [ ] **P4: Caller name lookup** — Always "Unknown". Fix: CNContactStore lookup by phone number.
+- [ ] **P4: NotificationServiceExtension** — Passthrough only; never writes to app-group. Fix: implement UNNotificationServiceExtension to forward pushes.
+- [ ] **P4: DeviceInfo from BLE** — Hardcoded "Galaxy Watch7". Fix: subscribe to `FE10` characteristic, decode `DeviceInfo` proto.
+- [ ] **P4: Fix empty callId** — CallView simulator actions send empty callId. Fix: generate proper UUID.
+- [ ] **P4: Fix music position drift** — Cumulative error in timer. Fix: use CACurrentMediaTime for precision.
+
+### Phase 13 — Code Quality
+- [ ] **P5: Remove empty stubs** — `SampleStore.swift`, `HealthSampleStore.swift`.
+- [ ] **P5: Remove deprecated `synchronize()`** — Unnecessary since iOS 13.
+- [ ] **P5: Remove duplicate ProtoModels** — `Generated/ProtoModels.swift` duplicates `Models/ProtoModels.swift`.
+- [ ] **P5: Add BLE write error handling** — Silent failures in `gatt?.write()` calls.
+- [ ] **P5: Document heartbeat format** — 8-byte payload undocumented.
 
 ---
 
@@ -194,3 +216,4 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked by
 - **2026-07-07** — Full codebase audit: launched 27-agent parallel review using caveman, moai-lang-dart, flutter-ui, podspec-fundamentals skills. Found 73 issues (14 critical, 23 high, 17 medium, 19 low). Documented all findings in Optimization.md.
 - **2026-07-07** — Fixed all 73 issues: GattClient per-characteristic reassembler + @MainActor + error logging; BLEManager state machine + onLinkControl seq echo; ProtoSerialization varint overflow guard + skipField bounds; NotificationForwarder data loss fix + @convention(c) callback; added app-group + aps-environment entitlements; DeviceCardView dynamic battery icon; WearableDevice Codable fix; removed unused SwiftProtobuf+Zip pods; MusicController noActionable + volume clamp + togglePlayPause; CallController deinit + dead code removal; Info.plist fixes; HealthViewModel throws on unavailable; AncsClient.kt BufferOverflow fix + ScanFilter + permission checks; HealthCollector executor restart + permission check; AndroidManifest health permissions + bluetooth_le feature; BlePeripheralService thread safety + MTU + permissions; pubspec.yaml Flutter constraint + dep bumps; build.gradle.kts stable health-services; Dart channel subscription cleanup; Uuids.kt random base; CI/CD signing config + Xcode pinning.
 - **2026-07-07** — Phase 7 wear_app fixes: migrated watchSignal→SignalBuilder for signals 7.x API, fixed PbList protobuf 3.x compat, replaced deprecated debugLabel→SignalOptions/MapSignalOptions, removed unused imports. `flutter analyze` clean (0 issues), `flutter test` 9/9 pass.
+- **2026-07-08** — Phase 8: 6-agent comprehensive review (iOS + Wear OS + protocol + web research). Found 23 issues across 5 priorities. Key findings: UUID mismatch prevents BLE connection entirely (Kotlin custom base vs iOS/Dart SIG base), health data never sent over BLE (drainBuffer() never called), assumeIsolated in deinit fragile, SpO2/HRV not available via Health Services 1.1.0. Documented all in progress.md. Updated progress.md with full improvement plan (Phases 9-13).

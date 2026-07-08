@@ -35,7 +35,7 @@ struct CallView: View {
                     HStack(spacing: 20) {
                         Button {
                             container.call.applyAction(CallAction(
-                                callId: "", action: .accept, nonce: 0
+                                callId: UUID().uuidString, action: .accept, nonce: 0
                             ))
                         } label: {
                             Label("Accept", systemImage: "checkmark.circle.fill")
@@ -45,7 +45,7 @@ struct CallView: View {
 
                         Button {
                             container.call.applyAction(CallAction(
-                                callId: "", action: .reject, nonce: 0
+                                callId: UUID().uuidString, action: .reject, nonce: 0
                             ))
                         } label: {
                             Label("Reject", systemImage: "xmark.circle.fill")
@@ -55,7 +55,7 @@ struct CallView: View {
 
                         Button {
                             container.call.applyAction(CallAction(
-                                callId: "", action: .mute, nonce: 0
+                                callId: UUID().uuidString, action: .mute, nonce: 0
                             ))
                         } label: {
                             Label("Mute", systemImage: "mic.slash.fill")
