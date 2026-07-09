@@ -16,4 +16,6 @@ class BleSignal {
   void setConn(ConnState s) => connection.value = s;
   void setFrame(String uuid, Uint8List data) =>
       lastFrame.value = {...lastFrame.value, uuid: data};
+
+  void dispose() {}
 }

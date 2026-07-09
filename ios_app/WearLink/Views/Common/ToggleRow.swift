@@ -29,7 +29,7 @@ struct ToggleRow: View {
                 .tint(.green)
                 .accessibilityLabel(title)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
     }
 }
 

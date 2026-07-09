@@ -72,6 +72,8 @@ struct DeviceCardView: View {
         .background(Color(.systemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(deviceName)
     }
 }
 

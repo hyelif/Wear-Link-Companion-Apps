@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct WearLinkApp: App {
-    @State private var container = AppContainer()
+    private let container = AppContainer()
 
     var body: some Scene {
         WindowGroup {

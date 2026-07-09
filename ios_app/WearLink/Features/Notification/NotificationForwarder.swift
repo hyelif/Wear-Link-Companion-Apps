@@ -95,12 +95,9 @@ final class NotificationForwarder: NSObject {
             Unmanaged.passUnretained(self).toOpaque()
         )
         // Invalidate timer on the main actor.
-        // assumeIsolated is correct: NotificationForwarder is @MainActor and
-        // owned by AppContainer (also @MainActor), so deinit always runs on
-        // the main actor.
-        MainActor.assumeIsolated {
-            pollingTimer?.invalidate()
-            pollingTimer = nil
+        let t = pollingTimer
+        Task { @MainActor in
+            t?.invalidate()
         }
     }
 

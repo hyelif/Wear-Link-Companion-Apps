@@ -40,11 +40,11 @@ final class MusicController: NSObject {
     /// Weak reference to the `GattClient` we last registered the command
     /// handler on. Used to detect reconnections and avoid redundant or
     /// orphaned registrations.
-    private weak var registeredGatt: AnyObject?
+    private weak var registeredGatt: GattClient?
 
     /// Opaque handler references returned by `MPRemoteCommand.addTarget(handler:)`,
     /// retained so they can be removed in `deinit`.
-    private var remoteCommandHandlers: [Any] = []
+    private var remoteCommandHandlers: [AnyObject] = []
 
     private(set) var nowPlaying = MusicNowPlaying(
         title: "", artist: "", album: "", art: Data(),
@@ -85,13 +85,12 @@ final class MusicController: NSObject {
             object: nil
         )
         // Timer invalidation + handler removal must run on the main actor.
-        // assumeIsolated is correct here: MusicController is @MainActor and
-        // owned by AppContainer (also @MainActor), so deinit always runs on
-        // the main actor. The assertion catches any accidental off-main release.
-        MainActor.assumeIsolated {
-            updateTimer?.invalidate()
+        let t = updateTimer
+        let handlers = remoteCommandHandlers
+        Task { @MainActor in
+            t?.invalidate()
             let center = MPRemoteCommandCenter.shared()
-            for handler in remoteCommandHandlers {
+            for handler in handlers {
                 center.playCommand.removeTarget(handler)
                 center.pauseCommand.removeTarget(handler)
                 center.togglePlayPauseCommand.removeTarget(handler)

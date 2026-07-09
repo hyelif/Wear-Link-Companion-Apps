@@ -17,7 +17,8 @@ struct DeviceIconView: View {
                 .frame(width: size, height: size)
             Image(systemName: iconName)
                 .foregroundStyle(.white)
-                .font(.system(size: size * 0.4))
+                .font(.title)
+                .imageScale(.large)
         }
     }
 }

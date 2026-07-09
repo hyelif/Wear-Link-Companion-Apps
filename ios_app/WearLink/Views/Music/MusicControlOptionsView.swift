@@ -63,15 +63,6 @@ struct MusicControlOptionsView: View {
                 SectionHeader(title: "Display Options")
             }
 
-            Section {
-                HStack {
-                    Spacer()
-                    Text("Retrieved 0 health records")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                    Spacer()
-                }
-            }
         }
         .navigationTitle("Music Control Options")
         .navigationBarTitleDisplayMode(.inline)

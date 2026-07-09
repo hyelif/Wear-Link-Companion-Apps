@@ -124,6 +124,7 @@ private struct MetricCard: View {
         .background(Color(.systemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.03), radius: 4, x: 0, y: 1)
+        .accessibilityLabel("\(label): \(value ?? "no data") \(unit)")
     }
 }
 

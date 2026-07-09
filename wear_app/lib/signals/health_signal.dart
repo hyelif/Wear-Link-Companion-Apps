@@ -52,7 +52,11 @@ class HealthSignal {
       if (samples == null) return;
       for (final s in samples) {
         if (s is! Map<String, dynamic>) continue;
-        _ingest(s);
+        try {
+          _ingest(s);
+        } catch (_) {
+          // Skip malformed sample; don't crash the health pipeline.
+        }
       }
     }
   }

@@ -145,7 +145,5 @@ class MusicSignal {
     ));
   }
 
-  void dispose() {
-    // No subscriptions to cancel; signals are garbage-collected.
-  }
+
 }

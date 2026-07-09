@@ -149,6 +149,15 @@ class BlePeripheralService(private val context: Context) {
 
     // ---- Outbound: watch -> phone via notify -----------------------------
 
+    /**
+     * Notify the connected central of a characteristic change.
+     *
+     * NOTE: This method calls [BluetoothGatt.notifyCharacteristicChanged] which
+     * must run on the binder thread. The caller (Dart side via platform channel)
+     * already invokes this from its own thread context, which is safe. Do NOT
+     * call this from an arbitrary background thread without ensuring the binder
+     * thread Looper is available.
+     */
     fun notify(uuid: UUID, frame: ByteArray): Boolean {
         val gatt = server ?: return false
         val dev = connectedDevice ?: return false
@@ -201,7 +210,11 @@ class BlePeripheralService(private val context: Context) {
             preparedWrite: Boolean, responseNeeded: Boolean,
             offset: Int, value: ByteArray
         ) {
-            onFrame?.invoke(characteristic.uuid, value)
+            try {
+                onFrame?.invoke(characteristic.uuid, value)
+            } catch (e: Exception) {
+                Log.e("BlePeripheralService", "onCharacteristicWriteRequest failed", e)
+            }
             if (responseNeeded) {
                 server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, value)
             }
@@ -213,17 +226,21 @@ class BlePeripheralService(private val context: Context) {
             preparedWrite: Boolean, responseNeeded: Boolean,
             offset: Int, value: ByteArray
         ) {
-            // CCCD enable/disable notify subscription.
-            val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
-            if (descriptor.uuid == cccdUuid) {
-                val charUuid = descriptor.characteristic?.uuid
-                if (charUuid != null) {
-                    if (value.isNotEmpty() && (value[0].toInt() and 0x01) != 0) {
-                        notifying.add(charUuid)
-                    } else {
-                        notifying.remove(charUuid)
+            try {
+                // CCCD enable/disable notify subscription.
+                val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
+                if (descriptor.uuid == cccdUuid) {
+                    val charUuid = descriptor.characteristic?.uuid
+                    if (charUuid != null) {
+                        if (value.isNotEmpty() && (value[0].toInt() and 0x01) != 0) {
+                            notifying.add(charUuid)
+                        } else {
+                            notifying.remove(charUuid)
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                Log.e("BlePeripheralService", "onDescriptorWriteRequest failed", e)
             }
             if (responseNeeded) {
                 server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, value)

@@ -27,6 +27,9 @@ late final NotificationSignal notificationSignal;
 late final MusicSignal musicSignal;
 late final AncsChannel ancsChannel;
 
+/// Health broadcast timer, stored so it can be cancelled on app exit.
+Timer? _healthTimer;
+
 void main() {
   bleSignal = BleSignal();
   callSignal = CallSignal();
@@ -51,13 +54,14 @@ void main() {
   );
 
   musicSignal.gatt = gatt;
-  notificationSignal.gatt = gatt;
+  notificationSignal.gattClient = gatt;
 
   healthSignal = HealthSignal(HealthServicesChannel());
   healthSignal.start();
 
   // Broadcast health data to the phone every 60 seconds.
-  Timer.periodic(const Duration(seconds: 60), (_) {
+  _healthTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+    if (bleSignal.connection.value != ConnState.connected) return;
     final samples = healthSignal.drainBuffer();
     if (samples.isEmpty) return;
     final frame = HealthFrame(
@@ -75,8 +79,50 @@ void main() {
   runApp(const WearLinkApp());
 }
 
-class WearLinkApp extends StatelessWidget {
+class WearLinkApp extends StatefulWidget {
   const WearLinkApp({super.key});
+
+  @override
+  State<WearLinkApp> createState() => _WearLinkAppState();
+}
+
+class _WearLinkAppState extends State<WearLinkApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _healthTimer?.cancel();
+    healthSignal.dispose();
+    ancsChannel.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _healthTimer?.cancel();
+      _healthTimer = null;
+    } else if (state == AppLifecycleState.resumed) {
+      _healthTimer?.cancel();
+      _healthTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+        if (bleSignal.connection.value != ConnState.connected) return;
+        final samples = healthSignal.drainBuffer();
+        if (samples.isEmpty) return;
+        final frame = HealthFrame(
+          sequence: 0,
+          samples: samples,
+          compressed: false,
+        );
+        final payload = frame.writeToBuffer();
+        gatt.send(GattUuid.healthStream, Uint8List.fromList(payload));
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -34,9 +34,11 @@ struct CallView: View {
 
                     HStack(spacing: 20) {
                         Button {
-                            container.call.applyAction(CallAction(
-                                callId: UUID().uuidString, action: .accept, nonce: 0
-                            ))
+                            if let callId = container.call.activeCallIDs.first {
+                                container.call.applyAction(CallAction(
+                                    callId: callId, action: .accept, nonce: 0
+                                ))
+                            }
                         } label: {
                             Label("Accept", systemImage: "checkmark.circle.fill")
                         }
@@ -44,9 +46,11 @@ struct CallView: View {
                         .tint(.green)
 
                         Button {
-                            container.call.applyAction(CallAction(
-                                callId: UUID().uuidString, action: .reject, nonce: 0
-                            ))
+                            if let callId = container.call.activeCallIDs.first {
+                                container.call.applyAction(CallAction(
+                                    callId: callId, action: .reject, nonce: 0
+                                ))
+                            }
                         } label: {
                             Label("Reject", systemImage: "xmark.circle.fill")
                         }
@@ -54,15 +58,16 @@ struct CallView: View {
                         .tint(.red)
 
                         Button {
-                            container.call.applyAction(CallAction(
-                                callId: UUID().uuidString, action: .mute, nonce: 0
-                            ))
+                            if let callId = container.call.activeCallIDs.first {
+                                container.call.applyAction(CallAction(
+                                    callId: callId, action: .mute, nonce: 0
+                                ))
+                            }
                         } label: {
                             Label("Mute", systemImage: "mic.slash.fill")
                         }
                         .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
                 }
             }
 

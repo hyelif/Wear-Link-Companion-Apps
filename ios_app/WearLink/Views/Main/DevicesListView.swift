@@ -62,24 +62,26 @@ struct DevicesListView: View {
                         FeatureCard(icon: "music.note", title: "Music", color: .purple) { MusicView() }
                     }
 
-                    // Setup tip card
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "lightbulb.fill")
-                                .foregroundStyle(.yellow)
-                            Text("Quick Tip")
-                                .font(.headline)
+                    // Setup tip card (only shown when no device is connected)
+                    if container.device == nil {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Image(systemName: "lightbulb.fill")
+                                    .foregroundStyle(.yellow)
+                                Text("Quick Tip")
+                                    .font(.headline)
+                            }
+                            Text("Follow these steps to set up your watch:\n1. Enable Bluetooth on your watch\n2. Open WearLink on your watch\n3. Wait for automatic connection")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineSpacing(4)
                         }
-                        Text("Follow these steps to set up your watch:\n1. Enable Bluetooth on your watch\n2. Open WearLink on your watch\n3. Wait for automatic connection")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineSpacing(4)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.systemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: .black.opacity(0.03), radius: 4, x: 0, y: 1)
                     }
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(.systemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .shadow(color: .black.opacity(0.03), radius: 4, x: 0, y: 1)
                 }
                 .padding()
             }
@@ -128,6 +130,7 @@ struct FeatureCard<Destination: View>: View {
             .shadow(color: .black.opacity(0.03), radius: 4, x: 0, y: 1)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(title) feature")
     }
 }
 

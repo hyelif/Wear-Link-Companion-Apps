@@ -66,6 +66,7 @@ struct DeviceDetailsView: View {
                 } label: {
                     Label("App Notifications", systemImage: "square.grid.2x2")
                 }
+                .disabled(true)
 
                 NavigationLink {
                     // TODO: Notification history
@@ -74,6 +75,7 @@ struct DeviceDetailsView: View {
                 } label: {
                     Label("Notification History", systemImage: "clock.arrow.circlepath")
                 }
+                .disabled(true)
             } header: {
                 SectionHeader(title: "Notifications")
             }

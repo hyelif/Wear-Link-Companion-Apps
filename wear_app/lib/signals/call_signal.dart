@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:signals/signals.dart';
 import 'package:wear_app/ble/gatt_client.dart';
 import 'package:wear_app/gen/wearlink.pb.dart';

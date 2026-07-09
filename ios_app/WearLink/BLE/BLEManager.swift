@@ -58,6 +58,12 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         central.delegate = self
     }
 
+    deinit {
+        scanTimer?.invalidate()
+        restTimer?.invalidate()
+        heartbeatTimer?.invalidate()
+    }
+
     func startScanning() {
         guard central.state == .poweredOn else { return }
         beginScanCycle()
@@ -209,6 +215,13 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         central.cancelPeripheralConnection(p)
         self.gatt = nil
         state = .disconnected(nil as Error?)
+    }
+
+    nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        Task { @MainActor in
+            state = .disconnected(error)
+            beginScanCycle()
+        }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager,

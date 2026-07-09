@@ -72,14 +72,17 @@ class NotificationSignal {
   final unreadCount = signal<int>(0, options: SignalOptions(name: 'unreadCount'));
 
   /// GattClient for outbound action writes. Set via [listen] or directly.
-  GattClient? gatt;
+  GattClient? _gatt;
+
+  /// Set the GattClient instance for outbound writes.
+  set gattClient(GattClient client) => _gatt = client;
 
   StreamSubscription<Uint8List>? _sub;
 
   /// Start listening to inbound frames on [uuid] (typically
   /// [GattUuid.notification]). Also sets [gatt] for outbound writes.
   void listen(GattClient client, String uuid) {
-    gatt = client;
+    _gatt = client;
     _sub?.cancel();
     _sub = client.inbound(uuid).listen(_onFrame);
   }
@@ -95,7 +98,7 @@ class NotificationSignal {
   /// Send a [NotifAction] to the phone via the notification action
   /// characteristic ([GattUuid.notificationAction]).
   Future<void> sendAction(NotifAction action) async {
-    final client = gatt;
+    final client = _gatt;
     if (client == null) return;
     final payload = action.writeToBuffer();
     await client.send(GattUuid.notificationAction, payload);

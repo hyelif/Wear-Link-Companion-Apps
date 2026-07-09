@@ -51,6 +51,7 @@ class HealthCollector(private val context: Context) {
     private var passiveClient: PassiveMonitoringClient? = null
     private var measureClient: MeasureClient? = null
     private val buffer = mutableListOf<Sample>()
+    @Volatile
     private var active = false
 
     // Cache boot instant once at construction to avoid race condition between

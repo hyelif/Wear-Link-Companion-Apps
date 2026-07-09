@@ -77,14 +77,20 @@ class GattClient {
         continuation: cont,
         payload: chunk,
       );
-      final ok = await channel.notify(uuid, frame);
-      if (ok != true) break;
+      try {
+        final ok = await channel.notify(uuid, frame);
+        if (ok != true) break;
+      } catch (_) {
+        break;
+      }
       offset = end;
     }
   }
 
   Stream<Uint8List> inbound(String uuid) {
-    return (_inbound[uuid] ??= StreamController<Uint8List>.broadcast()).stream;
+    return (_inbound[uuid] ??= StreamController<Uint8List>.broadcast(
+      onCancel: () => _inbound.remove(uuid),
+    )).stream;
   }
 
   void _onRawFrame(String uuid, Uint8List raw) {
@@ -93,8 +99,9 @@ class GattClient {
     final reassembled = _reassembler.add(frame);
     if (reassembled != null) {
       onFrame?.call(uuid, reassembled);
-      (_inbound[uuid] ??= StreamController<Uint8List>.broadcast())
-          .add(reassembled);
+      (_inbound[uuid] ??= StreamController<Uint8List>.broadcast(
+        onCancel: () => _inbound.remove(uuid),
+      )).add(reassembled);
     }
   }
 
