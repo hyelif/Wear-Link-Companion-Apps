@@ -51,9 +51,8 @@
         <string>UIInterfaceOrientationPortrait</string>
     </array>
     <!-- Bluetooth: required for BLE communication with the watch -->
-    <string>WearLink connects to your Wear OS watch over Bluetooth to sync health, calls, notifications, and music.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>WearLink uses Bluetooth to talk to your Wear OS watch.</string>
+    <string>WearLink connects to your Wear OS watch over Bluetooth to sync health, calls, notifications, and music.</string>
     <!-- Contacts: caller name lookup for call handling -->
     <key>NSContactsUsageDescription</key>
     <string>WearLink looks up caller names to show them on your watch.</string>
