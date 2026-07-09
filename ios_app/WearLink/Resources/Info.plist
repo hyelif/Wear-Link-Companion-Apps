@@ -22,22 +22,15 @@
     <array>
         <integer>1</integer>
     </array>
-    <key>UIApplicationSceneManifest</key>
-    <dict>
-        <key>UIApplicationSupportsMultipleScenes</key>
-        <false/>
-    </dict>
-    <!-- Opaque launch screen. An empty <dict/> renders a TRANSPARENT launch
-         screen (home-screen wallpaper shows through), which on SideStore reads
-         as a "blank / see-my-background" app. Reference an adaptive solid color
-         (LaunchBackground in Assets.xcassets: white in light, black in dark)
-         so launch is opaque, matching the working Flutter build's LaunchScreen
-         storyboard. -->
-    <key>UILaunchScreen</key>
-    <dict>
-        <key>UIColorName</key>
-        <string>LaunchBackground</string>
-    </dict>
+    <key>UIRequiresFullScreen</key>
+    <true/>
+    <!-- Launch screen storyboard — required for fullscreen on sideloaded/unsigned
+         IPA builds (SideStore). UILaunchScreen with UIColorName alone does not
+         trigger fullscreen sizing on iOS 26 when sideloaded without a provisioning
+         profile. A physical .storyboard file forces iOS to respect the app's
+         TARGETED_DEVICE_FAMILY and render at full UIScreen bounds. -->
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
     <key>UIBackgroundModes</key>
     <array>
         <!-- CoreBluetooth central keeps working in background.
