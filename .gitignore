@@ -88,5 +88,8 @@ secrets/
 *.dSYM.zip
 *.dSYM/
 
+# ---- Graphify knowledge graph artifacts (auto-generated) ----
+graphify-out/
+
 # ---- Flutter iOS host leftovers (Wear OS app has no iOS target) ----
 **/ios/Flutter/.last_build_id*.aar
