@@ -18,6 +18,10 @@
     <string>APPL</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <key>UIDeviceFamily</key>
+    <array>
+        <integer>1</integer>
+    </array>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>
