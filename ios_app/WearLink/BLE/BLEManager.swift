@@ -41,9 +41,9 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     weak var appContainer: AppContainer?
 
     private let central: CBCentralManager
-    private var scanTimer: Timer?
-    private var restTimer: Timer?
-    private var heartbeatTimer: Timer?
+    nonisolated(unsafe) private var scanTimer: Timer?
+    nonisolated(unsafe) private var restTimer: Timer?
+    nonisolated(unsafe) private var heartbeatTimer: Timer?
     private let scanOn: TimeInterval = 2.0
     private let scanOff: TimeInterval = 8.0
     private let scanOffMax: TimeInterval = 120.0
@@ -76,15 +76,17 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
                                    options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
         state = .scanning
         scanTimer = Timer.scheduledTimer(withTimeInterval: scanOn, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            self.central.stopScan()
-            // Exponential backoff: if no device found, progressively increase rest
-            // period up to scanOffMax (2 min) to save battery.
-            let rest = min(self.scanOff * pow(2.0, Double(self.scanFailureCount)), self.scanOffMax)
-            self.scanFailureCount += 1
-            self.restTimer = Timer.scheduledTimer(withTimeInterval: rest, repeats: false) { [weak self] _ in
-                Task { @MainActor in
-                    self?.beginScanCycle()
+            Task { @MainActor in
+                guard let self else { return }
+                self.central.stopScan()
+                // Exponential backoff: if no device found, progressively increase rest
+                // period up to scanOffMax (2 min) to save battery.
+                let rest = min(self.scanOff * pow(2.0, Double(self.scanFailureCount)), self.scanOffMax)
+                self.scanFailureCount += 1
+                self.restTimer = Timer.scheduledTimer(withTimeInterval: rest, repeats: false) { [weak self] _ in
+                    Task { @MainActor in
+                        self?.beginScanCycle()
+                    }
                 }
             }
         }

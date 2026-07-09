@@ -66,7 +66,7 @@ struct ForwardedNotificationItem: Identifiable, Sendable {
 final class NotificationForwarder: NSObject {
     private let ble: BLEManager
     private let sharedDefaults: UserDefaults?
-    private var pollingTimer: Timer?
+    nonisolated(unsafe) private var pollingTimer: Timer?
 
     /// Ordered list of notifications that have been forwarded to the watch.
     private(set) var forwardedNotifications: [ForwardedNotificationItem] = []

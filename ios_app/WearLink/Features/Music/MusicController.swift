@@ -34,8 +34,8 @@ extension Notification.Name {
 @Observable
 final class MusicController: NSObject {
     private let ble: BLEManager
-    private var updateTimer: Timer?
-    private var lastPositionUpdate: Date?
+    nonisolated(unsafe) private var updateTimer: Timer?
+    nonisolated(unsafe) private var lastPositionUpdate: Date?
 
     /// Weak reference to the `GattClient` we last registered the command
     /// handler on. Used to detect reconnections and avoid redundant or
@@ -44,7 +44,7 @@ final class MusicController: NSObject {
 
     /// Opaque handler references returned by `MPRemoteCommand.addTarget(handler:)`,
     /// retained so they can be removed in `deinit`.
-    private var remoteCommandHandlers: [AnyObject] = []
+    nonisolated(unsafe) private var remoteCommandHandlers: [Any] = []
 
     private(set) var nowPlaying = MusicNowPlaying(
         title: "", artist: "", album: "", art: Data(),
@@ -311,23 +311,25 @@ final class MusicController: NSObject {
     private func startPositionUpdates() {
         updateTimer?.invalidate()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self, self.nowPlaying.playing else { return }
+            Task { @MainActor in
+                guard let self, self.nowPlaying.playing else { return }
 
-            let now = Date()
-            if let lastUpdate = self.lastPositionUpdate {
-                let elapsedMs = now.timeIntervalSince(lastUpdate) * 1000
-                self.nowPlaying.positionMs += elapsedMs
+                let now = Date()
+                if let lastUpdate = self.lastPositionUpdate {
+                    let elapsedMs = now.timeIntervalSince(lastUpdate) * 1000
+                    self.nowPlaying.positionMs += elapsedMs
+                }
+                self.lastPositionUpdate = now
+
+                // Update MPNowPlayingInfoCenter with the new position.
+                var mpInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+                mpInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = self.nowPlaying.positionMs / 1000.0
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = mpInfo
+
+                // Push the updated position to the watch.
+                let payload = ProtoCodec.encodeMusicNowPlaying(self.nowPlaying)
+                self.ble.gatt?.write(payload, to: WearLinkUUID.musicNowPlaying)
             }
-            self.lastPositionUpdate = now
-
-            // Update MPNowPlayingInfoCenter with the new position.
-            var mpInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-            mpInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = self.nowPlaying.positionMs / 1000.0
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = mpInfo
-
-            // Push the updated position to the watch.
-            let payload = ProtoCodec.encodeMusicNowPlaying(self.nowPlaying)
-            self.ble.gatt?.write(payload, to: WearLinkUUID.musicNowPlaying)
         }
     }
 
