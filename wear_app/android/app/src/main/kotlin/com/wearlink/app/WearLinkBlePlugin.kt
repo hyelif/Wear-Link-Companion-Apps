@@ -163,7 +163,10 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
         val pending = pendingPermissionResult
         pendingPermissionResult = null
         // Re-check the actual grant state rather than trusting grantResults order.
-        pending?.success(hasBlePerms())
+        val granted = hasBlePerms()
+        Log.i("WearLink/Ble", "BLE permission result: granted=$granted " +
+            "(grantResults=${grantResults.joinToString()})")
+        pending?.success(granted)
     }
 
     // ---- ActivityAware ---------------------------------------------------

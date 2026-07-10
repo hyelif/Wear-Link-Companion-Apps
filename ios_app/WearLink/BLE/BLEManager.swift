@@ -1,5 +1,6 @@
 import Foundation
 import CoreBluetooth
+import os
 
 /// Central-side BLE manager. Scans for the WearLink watch, connects, bonds,
 /// and exposes the discovered `GattClient`.
@@ -9,6 +10,11 @@ import CoreBluetooth
 @MainActor
 @Observable
 final class BLEManager: NSObject, CBCentralManagerDelegate {
+    /// os_log logger so connection milestones are visible in Console.app /
+    /// `log` CLI even for SideStore-installed builds (where `print()` output is
+    /// not attached to a debugger). Filter Console by subsystem "com.wearlink".
+    private let logger = Logger(subsystem: "com.wearlink", category: "BLE")
+
     enum State: Equatable {
         case poweredOff, scanning, connecting, connected, disconnected(Error?)
 
@@ -98,19 +104,22 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         Task { @MainActor in
             switch c.state {
             case .poweredOn:
+                logger.info("CBCentralManager poweredOn — start scanning")
                 startScanning()
             case .poweredOff:
+                logger.info("CBCentralManager poweredOff")
                 state = .poweredOff
                 invalidateAll()
             case .unauthorized:
+                logger.error("CBCentralManager unauthorized — Bluetooth permission NOT granted. Open Settings → WearLink → Bluetooth")
                 state = .poweredOff
-                print("[BLE] Bluetooth unauthorized — grant Bluetooth permission in Settings")
                 invalidateAll()
             case .unsupported:
+                logger.error("CBCentralManager unsupported on this device")
                 state = .poweredOff
-                print("[BLE] Bluetooth unsupported on this device")
                 invalidateAll()
             case .resetting:
+                logger.info("CBCentralManager resetting")
                 state = .poweredOff
                 invalidateAll()
             case .unknown:
@@ -134,6 +143,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
                         didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
         Task { @MainActor in
+            logger.info("Discovered WearLink watch (RSSI=\(RSSI)) — connecting")
             central.stopScan()
             scanTimer?.invalidate(); restTimer?.invalidate()
             scanFailureCount = 0  // Reset backoff on discovery
@@ -144,6 +154,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         Task { @MainActor in
+            logger.info("Connected to watch — discovering GATT services")
             let client = GattClient(peripheral: peripheral)
             // LinkControl (FE60) keepalive handshake. The watch may originate
             // heartbeats; we ACK those with a matching seq. We also originate
@@ -200,6 +211,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             self.state = .connected
             peripheral.delegate = client
             client.discoverServices()
+            logger.info("GATT connected — state=.connected, discovering services")
             self.startHeartbeat()
             // Register device info handler — decode FE10 notify payload into WearableDevice.
             client.onPayload[WearLinkUUID.deviceInfo] = { [weak self] data in
