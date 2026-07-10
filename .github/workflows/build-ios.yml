@@ -159,6 +159,25 @@ jobs:
           fi
           echo "Packaging: $APP"
           cp -r "$APP" build/ipa/Payload/
+
+          # AD-HOC SIGN the .app before zipping.
+          # With CODE_SIGNING_ALLOWED=NO, Xcode 26.3 emits a binary with NO
+          # LC_CODE_SIGNATURE load command and NO _CodeSignature/ dir — a
+          # completely bare Mach-O. iOS requires every app binary to carry an
+          # embedded code signature (minimum ad-hoc). SideStore's minimuxer /
+          # installd rejects a bare binary as malformed -> SideStore crashes
+          # during IPA install. (Older Xcode 16.x ad-hoc-signed via the linker
+          # even with signing "off"; Xcode 26.3 does not — this is the
+          # regression that broke build-39 installation.)
+          # Ad-hoc `--sign -` injects LC_CODE_SIGNATURE + _CodeSignature/
+          # CodeResources. SideStore then resigns with the user's Apple ID
+          # dev cert + generated provisioning profile. No entitlements shipped
+          # (empty entitlements file = correct for free-account SideStore;
+          # SideStore injects its own at resign time).
+          codesign --force --sign - build/ipa/Payload/WearLink.app
+          # Verify the signature landed (fail fast if it didn't).
+          codesign -dv build/ipa/Payload/WearLink.app
+
           cd build/ipa && zip -r WearLink.ipa Payload/
 
       - name: Build + archive + export (signed, when secrets present)
