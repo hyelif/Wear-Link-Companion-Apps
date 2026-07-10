@@ -1,0 +1,22 @@
+{
+  "keywords": {
+    "systems/development.md": [
+      "development", "dev", "local", "localhost",
+      "database", "migration", "test", "debug"
+    ],
+    "systems/production.md": [
+      "production", "prod", "deploy", "hosting", "ci/cd"
+    ],
+    "modules/your-feature.md": [
+      "feature-name", "related-terms", "class-names", "function-names"
+    ],
+    "integrations/external-api.md": [
+      "api-name", "webhook", "integration"
+    ]
+  },
+  "co_activation": {
+    "modules/your-feature.md": ["systems/development.md"],
+    "integrations/external-api.md": ["modules/your-feature.md"]
+  },
+  "pinned": ["systems/development.md"]
+}
