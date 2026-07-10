@@ -8,11 +8,15 @@ class MainActivity : FlutterActivity() {
     /// Reference to the health plugin so MainActivity can forward the runtime
     /// permission result (BODY_SENSORS + ACTIVITY_RECOGNITION) back to Flutter.
     private lateinit var healthPlugin: HealthServicesPlugin
+    /// Reference to the BLE plugin so MainActivity can forward the runtime
+    /// permission result (BLUETOOTH_SCAN/CONNECT/ADVERTISE) back to Flutter.
+    private lateinit var blePlugin: WearLinkBlePlugin
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         healthPlugin = HealthServicesPlugin()
-        flutterEngine.plugins.add(WearLinkBlePlugin())
+        blePlugin = WearLinkBlePlugin()
+        flutterEngine.plugins.add(blePlugin)
         flutterEngine.plugins.add(healthPlugin)
         flutterEngine.plugins.add(AncsPlugin())
     }
@@ -23,6 +27,9 @@ class MainActivity : FlutterActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (::healthPlugin.isInitialized) {
             healthPlugin.onPermissionResult(requestCode, grantResults)
+        }
+        if (::blePlugin.isInitialized) {
+            blePlugin.onPermissionResult(requestCode, grantResults)
         }
     }
 }

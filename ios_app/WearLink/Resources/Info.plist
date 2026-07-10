@@ -63,7 +63,15 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
     </array>
-    <!-- Bluetooth: required for BLE communication with the watch -->
+    <!-- Bluetooth: required for BLE communication with the watch.
+         NSBluetoothAlwaysUsageDescription is the REQUIRED key on iOS 13+ for
+         CBCentralManager to access Bluetooth AND to trigger the system Bluetooth
+         permission prompt. Without it, the prompt never appears and CBCentralManager
+         stays .unauthorized (or crashes on first access). NSBluetoothPeripheralUsage
+         Description is the deprecated pre-iOS-13 CBPeripheralManager key, kept for
+         backward compatibility. -->
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>WearLink connects to your Wear OS watch over Bluetooth to sync health, calls, notifications, and music.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
     <string>WearLink connects to your Wear OS watch over Bluetooth to sync health, calls, notifications, and music.</string>
     <!-- Contacts: caller name lookup for call handling -->

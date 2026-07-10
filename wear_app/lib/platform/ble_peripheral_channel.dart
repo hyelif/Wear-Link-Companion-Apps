@@ -40,6 +40,15 @@ class BlePeripheralChannel {
   Future<void> advertiseStart() async => _m.invokeMethod('advertiseStart');
   Future<void> advertiseStop() async => _m.invokeMethod('advertiseStop');
 
+  /// Request BLUETOOTH_SCAN + BLUETOOTH_CONNECT + BLUETOOTH_ADVERTISE at runtime
+  /// (Wear OS 3+ / API 31+ requires a runtime grant for the dangerous BLE perms).
+  /// MUST be awaited before [start] / [advertiseStart]; otherwise the GATT server
+  /// cannot exchange data and the advertiser silently fails (onStartFailure) —
+  /// the watch stays invisible to the iPhone. Returns true when all three are
+  /// granted. No-op (returns true) below API 31 where these are install-time grants.
+  Future<bool> requestPermissions() async =>
+      (await _m.invokeMethod('requestPermissions')) as bool;
+
   Future<bool> notify(String uuid, Uint8List frame) async =>
       (await _m.invokeMethod('notify', {'uuid': uuid, 'data': frame})) as bool;
 

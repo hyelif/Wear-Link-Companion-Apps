@@ -30,6 +30,10 @@ import java.util.UUID
 /// a faster advertising set when a call event is pending (Phase 3).
 class BlePeripheralService(private val context: Context) {
 
+    private companion object {
+        const val TAG = "WearLink/Ble"
+    }
+
     enum class ConnState { DISCONNECTED, CONNECTING, CONNECTED }
 
     var onConnState: ((ConnState) -> Unit)? = null
@@ -83,16 +87,17 @@ class BlePeripheralService(private val context: Context) {
         val mgr = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         adapter = mgr?.adapter
         if (adapter?.isEnabled != true) {
-            val msg = "Bluetooth adapter is not enabled"
-            handler.post { onError?.invoke(msg) }
+            Log.e(TAG, "start: Bluetooth adapter not enabled")
+            handler.post { onError?.invoke("Bluetooth adapter is not enabled") }
             return false
         }
         server = mgr?.openGattServer(context, gattCallback)
         if (server == null) {
-            val msg = "Failed to open GATT server"
-            handler.post { onError?.invoke(msg) }
+            Log.e(TAG, "start: openGattServer returned null (BLE perms missing?)")
+            handler.post { onError?.invoke("Failed to open GATT server") }
             return false
         }
+        Log.i(TAG, "start: GATT server opened")
         setupService()
         return true
     }
@@ -107,12 +112,31 @@ class BlePeripheralService(private val context: Context) {
     // ---- Advertising -----------------------------------------------------
 
     private val advCallback = object : AdvertiseCallback() {
-        override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {}
-        override fun onStartFailure(errorCode: Int) {}
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
+            Log.i(TAG, "advertise onStartSuccess — watch is broadcasting service UUID")
+        }
+        override fun onStartFailure(errorCode: Int) {
+            // ADVERTISE_FAILED_FEATURE_UNSUPPORTED = 1
+            // ADVERTISE_FAILED_TOO_MANY_ADVERTISERS = 2
+            // ADVERTISE_FAILED_ALREADY_STARTED = 3
+            // ADVERTISE_FAILED_DATA_TOO_LARGE = 4
+            // ADVERTISE_FAILED_INTERNAL_ERROR = 5
+            // The most common cause on a fresh install: BLUETOOTH_ADVERTISE not
+            // granted at runtime (API 31+) — the advertiser rejects with
+            // FEATURE_UNSUPPORTED / INTERNAL_ERROR instead of a permission error.
+            Log.e(TAG, "advertise onStartFailure errorCode=$errorCode — " +
+                "watch NOT discoverable. Likely missing BLUETOOTH_ADVERTISE/SCAN/CONNECT " +
+                "runtime permission, or BT off.")
+            handler.post { onError?.invoke("Advertise failed: errorCode=$errorCode") }
+        }
     }
 
     fun startAdvertising() {
-        val a = advertiser ?: adapter?.bluetoothLeAdvertiser ?: return
+        val a = advertiser ?: adapter?.bluetoothLeAdvertiser
+        if (a == null) {
+            Log.e(TAG, "startAdvertising: bluetoothLeAdvertiser is null (BLE perms/BT off)")
+            return
+        }
         advertiser = a
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_POWER)
@@ -124,6 +148,7 @@ class BlePeripheralService(private val context: Context) {
             .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(Uuids.service))
             .build()
+        Log.i(TAG, "startAdvertising: requesting to advertise service UUID")
         a.startAdvertising(settings, data, advCallback)
     }
 
@@ -220,11 +245,13 @@ class BlePeripheralService(private val context: Context) {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
+                    Log.i(TAG, "GATT central CONNECTED: ${device.address}")
                     connectedDevice = device
                     stopAdvertising()
                     setConn(ConnState.CONNECTED)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    Log.i(TAG, "GATT central DISCONNECTED (status=$status)")
                     connectedDevice = null
                     notifying.clear()
                     setConn(ConnState.DISCONNECTED)
@@ -253,7 +280,7 @@ class BlePeripheralService(private val context: Context) {
                     resp == null ->
                         gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, ByteArray(0))
                     offset < 0 || offset > resp.size ->
-                        gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_INVALID_ATTRIBUTE_OFFSET, 0, null)
+                        gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_INVALID_OFFSET, 0, null)
                     offset == resp.size ->
                         // End of a long read whose length is an exact multiple of (MTU-1):
                         // an empty response tells CoreBluetooth the value is complete.

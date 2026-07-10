@@ -50,6 +50,14 @@ Future<void> main() async {
 
   bleChannel = BlePeripheralChannel();
   gatt = GattClient(channel: bleChannel);
+
+  // Wear OS 3+ / API 31+ requires a runtime grant for the dangerous BLE perms
+  // (BLUETOOTH_SCAN/CONNECT/ADVERTISE) before the GATT server can run and the
+  // advertiser can broadcast. Without it, startAdvertising() silently fails
+  // (onStartFailure) and the watch is invisible to the iPhone. Must be awaited
+  // before gatt.start() (which calls channel.start() + advertiseStart()).
+  await bleChannel.requestPermissions();
+
   gatt.start(
     onFrame: (uuid, payload) {
       bleSignal.setFrame(uuid, payload);
