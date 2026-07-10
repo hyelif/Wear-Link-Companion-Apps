@@ -28,18 +28,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode
-        # Use latest-stable instead of a pinned "16.0": GitHub's macos-15 image
-        # rotated and the 16.0 install is now stripped of its iOS 18 platform
-        # ("iOS 18.0 is not installed" -> xcodebuild exit 70, no eligible
-        # generic/platform=iOS destination). latest-stable picks a fully
-        # equipped stable Xcode present on the runner (a 16.x on macos-15;
-        # Xcode 26 requires macOS 26 and is not on this image). SWIFT_VERSION
-        # is pinned to 5.9 in project.yml so a newer 16.x toolchain stays
-        # language-mode compatible with code that already compiled under 16.0.
-        uses: maxim-lobanov/setup-xcode@v1.6.0
-        with:
-          xcode-version: latest-stable
+      - name: Select Xcode 16.x (avoid 26.x malformed-unsigned-binary regression)
+        # Xcode 26.x (now the macos-15 "latest-stable") with
+        # CODE_SIGNING_ALLOWED=NO + CODE_SIGN_IDENTITY="" emits a malformed
+        # Mach-O: NO LC_BUILD_VERSION load command and a bare binary with no
+        # embedded code signature. SideStore crashes mid-install (~half
+        # progress bar, no error text) on such binaries — verified across
+        # build-39 (bare binary) AND build-40 (ad-hoc signed but still missing
+        # LC_BUILD_VERSION). Xcode 16.x's linker emits a proper ad-hoc-signed
+        # binary WITH LC_BUILD_VERSION even under CODE_SIGNING_ALLOWED=NO — the
+        # same path as the known-good Flutter `flutter build ios --no-codesign`
+        # reference (bridge_wear_os). Pin to the highest 16.x installed on the
+        # runner. SWIFT_VERSION pinned to 5.9 in project.yml stays compatible.
+        run: |
+          set -e
+          echo "Installed Xcode versions:"
+          ls -d /Applications/Xcode*.app 2>/dev/null | sort -V || true
+          XCODE=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "ERROR: no Xcode 16.x found in /Applications — cannot avoid the 26.x malformed-unsigned-binary regression."
+            echo "Available Xcode apps:"; ls /Applications | grep -i xcode || true
+            exit 1
+          fi
+          echo "Selected: $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          swift --version
 
       - name: Install XcodeGen
         run: brew install xcodegen
