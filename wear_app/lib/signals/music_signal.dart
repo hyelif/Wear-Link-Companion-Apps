@@ -97,6 +97,8 @@ class MusicSignal {
   Future<void> sendCommand(MusicCommand cmd) async {
     final gatt = _gatt;
     if (gatt == null) return;
+    // Replay-protection nonce (W7). Matches CallAction's convention.
+    cmd.nonce = DateTime.now().millisecondsSinceEpoch & 0xffff;
     final payload = cmd.writeToBuffer();
     await gatt.send(GattUuid.musicCommand, payload);
   }

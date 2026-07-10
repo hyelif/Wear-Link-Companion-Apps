@@ -57,6 +57,12 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     val data = (call.argument<ByteArray>("data") ?: ByteArray(0))
                     result.success(service.notify(uuid, data))
                 }
+                "getDeviceInfo" -> result.success(service.deviceInfoSnapshot())
+                "setDeviceInfo" -> {
+                    val data = call.argument<ByteArray>("data") ?: ByteArray(0)
+                    service.setDeviceInfoResponse(data)
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         } catch (t: Throwable) {

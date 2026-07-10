@@ -100,6 +100,8 @@ class NotificationSignal {
   Future<void> sendAction(NotifAction action) async {
     final client = _gatt;
     if (client == null) return;
+    // Replay-protection nonce (W7). Matches CallAction's convention.
+    action.nonce = DateTime.now().millisecondsSinceEpoch & 0xffff;
     final payload = action.writeToBuffer();
     await client.send(GattUuid.notificationAction, payload);
   }

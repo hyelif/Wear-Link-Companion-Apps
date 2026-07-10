@@ -31,6 +31,13 @@ class HealthServicesChannel {
   Future<bool> start() async =>
       (await _methodChannel.invokeMethod('start')) as bool;
 
+  /// Request BODY_SENSORS + ACTIVITY_RECOGNITION at runtime (Android 12+/Wear OS 3+
+  /// requires runtime grant for dangerous permissions). Returns true when BODY_SENSORS
+  /// — the hard gate for heart-rate capture — is granted. Must be awaited before
+  /// [start]; otherwise HealthCollector.start() silently no-ops on a fresh install.
+  Future<bool> requestPermissions() async =>
+      (await _methodChannel.invokeMethod('requestPermissions')) as bool;
+
   Future<bool> stop() async =>
       (await _methodChannel.invokeMethod('stop')) as bool;
 

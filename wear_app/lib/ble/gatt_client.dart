@@ -107,6 +107,12 @@ class GattClient {
 
   void _onConn(String? state) {
     onConn?.call(state ?? 'DISCONNECTED');
-    if (state == 'DISCONNECTED') _reassembler.clear();
+    if (state == 'DISCONNECTED') {
+      _reassembler.clear();
+      // Reset the outbound seq space on reconnect (codec.md). The watch's GattClient
+      // is a singleton that persists across connects, so without this the seq would
+      // carry over and eventually collide after 0xFFFF writes.
+      _outSeq = 0;
+    }
   }
 }

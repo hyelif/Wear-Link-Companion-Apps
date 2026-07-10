@@ -49,6 +49,8 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     private let scanOffMax: TimeInterval = 120.0
     private var scanFailureCount: Int = 0
     private let heartbeatInterval: TimeInterval = 30.0
+    /// Monotonic seq for iOS-originated heartbeats; echoed by the watch in its ACK.
+    private var heartbeatSeq: UInt32 = 0
 
     override init() {
         // `options` let CoreBluetooth restore state across relaunches.
@@ -143,11 +145,25 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         Task { @MainActor in
             let client = GattClient(peripheral: peripheral)
-            // Echo inbound LinkControl frames back as acks (heartbeat echo).
+            // LinkControl (FE60) keepalive handshake. The watch may originate
+            // heartbeats; we ACK those with a matching seq. We also originate
+            // heartbeats (startHeartbeat); inbound ACKs/NACKs for those are proof of
+            // liveness and are NOT re-ACKed (prevents an ack-pingpong loop). FE60 is
+            // not chunked, so frame.payload is the full LinkControl protobuf.
             client.onLinkControl = { [weak self] frame in
                 Task { @MainActor in
-                    let seqData = withUnsafeBytes(of: frame.seq.bigEndian) { Data($0) }
-                    self?.gatt?.write(seqData, to: WearLinkUUID.linkControl)
+                    guard let self else { return }
+                    guard let lc = ProtoCodec.decodeLinkControl(from: frame.payload) else { return }
+                    switch lc.kind {
+                    case .heartbeat:
+                        let ack = LinkControl(kind: .ack, seq: lc.seq,
+                            timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
+                            payload: Data())
+                        self.gatt?.write(ProtoCodec.encodeLinkControl(ack),
+                                         to: WearLinkUUID.linkControl)
+                    case .ack, .nack, .kindUnspecified, .reconnectToken:
+                        break
+                    }
                 }
             }
             // Register inbound payload handlers for feature characteristics
@@ -207,6 +223,13 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             }
             // Notify feature controllers that a new BLE connection is established.
             NotificationCenter.default.post(name: .bleDidReconnect, object: nil)
+            // Once characteristics are discovered, configure the watch's health
+            // capture (FE21 HealthControl): push interval + the types we want.
+            client.onDiscovered = { [weak self] in
+                Task { @MainActor in
+                    self?.sendHealthControlConfig()
+                }
+            }
         }
     }
 
@@ -244,10 +267,30 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: heartbeatInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let g = self.gatt else { return }
-                // Heartbeat payload: 8-byte timestamp placeholder (device clock).
-                let payload = Data(count: 8)
-                g.write(payload, to: WearLinkUUID.linkControl)
+                // Heartbeat = a real LinkControl{HEARTBEAT} protobuf (not 8 zero bytes),
+                // framed by GattClient.write. The watch decodes it and returns an ACK
+                // with the matching seq, which arrives via onLinkControl above.
+                self.heartbeatSeq &+= 1
+                let lc = LinkControl(
+                    kind: .heartbeat,
+                    seq: self.heartbeatSeq,
+                    timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
+                    payload: Data()
+                )
+                g.write(ProtoCodec.encodeLinkControl(lc), to: WearLinkUUID.linkControl)
             }
         }
+    }
+
+    /// Configure the watch's health broadcast via FE21 HealthControl: set the push
+    /// interval (ms) and the sample types we want forwarded. Sent after GATT
+    /// discovery completes (onDiscovered) so the FE21 characteristic is present.
+    private func sendHealthControlConfig() {
+        guard let g = gatt else { return }
+        let setInterval = HealthControl(command: .setIntervalMs, intervalMs: 60_000, types: [])
+        g.write(ProtoCodec.encodeHealthControl(setInterval), to: WearLinkUUID.healthControl)
+        let setTypes = HealthControl(command: .setTypes, intervalMs: 0,
+            types: [.heartRateBpm, .steps, .calories, .distanceMeters, .sleep])
+        g.write(ProtoCodec.encodeHealthControl(setTypes), to: WearLinkUUID.healthControl)
     }
 }

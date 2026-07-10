@@ -15,6 +15,10 @@ final class GattClient: NSObject, CBPeripheralDelegate {
     /// Per-uuid inbound payload handlers (set by feature code in later phases).
     var onPayload: [CBUUID: (Data) -> Void] = [:]
     var onLinkControl: ((PacketCodec.Frame) -> Void)?
+    /// Fires once after characteristics are discovered, subscribed, and FE10 read,
+    /// so feature code can issue commands that require the chars to be present
+    /// (e.g. the FE21 HealthControl config the phone sends on connect).
+    var onDiscovered: (() -> Void)?
 
     init(peripheral: CBPeripheral) {
         self.peripheral = peripheral
@@ -51,6 +55,17 @@ final class GattClient: NSObject, CBPeripheralDelegate {
                 p.setNotifyValue(true, for: c)
             }
         }
+        // Read FE10 DeviceInfo once on discovery. The watch responds with a framed
+        // DeviceInfo protobuf; the response arrives in didUpdateValueFor, is decoded
+        // by PacketCodec, and is dispatched to onPayload[deviceInfo] (BLEManager
+        // decodes it into WearableDevice and updates AppContainer). FE10 is a read
+        // characteristic (no CCCD), so it is intentionally NOT in the subscribe list.
+        if let di = chars[WearLinkUUID.deviceInfo] {
+            p.readValue(for: di)
+        }
+        // Feature code (BLEManager) sends watch config (HealthControl) now that
+        // the characteristics are present and subscribed.
+        onDiscovered?()
     }
 
     /// Write a framed packet. Splits into MTU-sized chunks; sets continuation flag.

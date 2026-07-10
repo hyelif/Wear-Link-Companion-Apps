@@ -43,6 +43,15 @@ class BlePeripheralChannel {
   Future<bool> notify(String uuid, Uint8List frame) async =>
       (await _m.invokeMethod('notify', {'uuid': uuid, 'data': frame})) as bool;
 
+  /// Native device facts (model, firmware, battery, mtu) used to build the
+  /// DeviceInfo protobuf served on FE10 reads.
+  Future<Map<dynamic, dynamic>> getDeviceInfo() async =>
+      (await _m.invokeMethod('getDeviceInfo')) as Map<dynamic, dynamic>;
+
+  /// Cache a framed DeviceInfo payload for the next FE10 read from the iPhone.
+  Future<void> setDeviceInfo(Uint8List frame) async =>
+      _m.invokeMethod('setDeviceInfo', {'data': frame});
+
   Stream<BleFrameEvent> events() {
     return _e.receiveBroadcastStream().map(
       (raw) => BleFrameEvent.fromMap(raw as Map<dynamic, dynamic>),

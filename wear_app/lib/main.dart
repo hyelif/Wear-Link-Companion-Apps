@@ -5,11 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:signals/signals_flutter.dart';
 
 import 'package:wear_app/ble/gatt_client.dart';
+import 'package:wear_app/ble/packet_codec.dart';
 import 'package:wear_app/features/call/call_screen.dart';
 import 'package:wear_app/features/health/health_screen.dart';
 import 'package:wear_app/features/music/music_screen.dart';
 import 'package:wear_app/features/notification/notification_screen.dart';
-import 'package:wear_app/platform/ancs_channel.dart';
 import 'package:wear_app/platform/ble_peripheral_channel.dart';
 import 'package:wear_app/platform/health_services_channel.dart';
 import 'package:wear_app/signals/ble_signal.dart';
@@ -20,26 +20,47 @@ import 'package:wear_app/signals/notification_signal.dart';
 import 'package:wear_app/gen/wearlink.pb.dart';
 
 late final BleSignal bleSignal;
+late final BlePeripheralChannel bleChannel;
 late final GattClient gatt;
+late final HealthServicesChannel healthChannel;
 late final HealthSignal healthSignal;
 late final CallSignal callSignal;
 late final NotificationSignal notificationSignal;
 late final MusicSignal musicSignal;
-late final AncsChannel ancsChannel;
 
-/// Health broadcast timer, stored so it can be cancelled on app exit.
+/// Health broadcast timer, stored so it can be cancelled/restarted.
 Timer? _healthTimer;
+/// Health push interval (ms), configured by the iPhone via FE21 SET_INTERVAL_MS.
+/// Default 60 s. A SET_INTERVAL_MS command restarts the timer at this cadence.
+int _healthIntervalMs = 60000;
+/// Sample types the iPhone wants forwarded (FE21 SET_TYPES). null/empty = all.
+Set<HealthSample_Type>? _healthTypes;
+/// Whether the app is in the foreground (resumed). SET_INTERVAL_MS only restarts
+/// the timer while resumed, to honor the pause/cancel lifecycle discipline.
+bool _appResumed = true;
+/// Monotonic sequence for outbound HealthFrames (W9). Wraps at 2^32 so the phone
+/// can order/dedup frames; previously hardcoded 0 so dedup was non-functional.
+int _healthFrameSeq = 0;
 
-void main() {
+Future<void> main() async {
   bleSignal = BleSignal();
   callSignal = CallSignal();
   notificationSignal = NotificationSignal();
   musicSignal = MusicSignal();
 
-  gatt = GattClient(channel: BlePeripheralChannel());
+  bleChannel = BlePeripheralChannel();
+  gatt = GattClient(channel: bleChannel);
   gatt.start(
     onFrame: (uuid, payload) {
       bleSignal.setFrame(uuid, payload);
+      if (uuid == GattUuid.linkControl) {
+        _handleLinkControl(payload);
+        return;
+      }
+      if (uuid == GattUuid.healthControl) {
+        _handleHealthControl(payload);
+        return;
+      }
       callSignal.updateFromFrame(uuid, payload);
       notificationSignal.updateFromFrame(uuid, payload);
       musicSignal.updateFromFrame(uuid, payload);
@@ -56,27 +77,123 @@ void main() {
   musicSignal.gatt = gatt;
   notificationSignal.gattClient = gatt;
 
-  healthSignal = HealthSignal(HealthServicesChannel());
+  // Wear OS 3+ requires a runtime grant for BODY_SENSORS (HR) + ACTIVITY_RECOGNITION
+  // (steps/calories/distance). Request before starting collection, otherwise
+  // HealthCollector.start() silently no-ops on a fresh install (W4).
+  healthChannel = HealthServicesChannel();
+  healthSignal = HealthSignal(healthChannel);
+  await healthChannel.requestPermissions();
   healthSignal.start();
 
-  // Broadcast health data to the phone every 60 seconds.
-  _healthTimer = Timer.periodic(const Duration(seconds: 60), (_) {
-    if (bleSignal.connection.value != ConnState.connected) return;
-    final samples = healthSignal.drainBuffer();
-    if (samples.isEmpty) return;
-    final frame = HealthFrame(
-      sequence: 0,
-      samples: samples,
-      compressed: false,
-    );
-    final payload = frame.writeToBuffer();
-    gatt.send(GattUuid.healthStream, Uint8List.fromList(payload));
-  });
+  // Broadcast health data to the phone on the configured interval (default 60 s).
+  _startHealthTimer();
 
-  ancsChannel = AncsChannel();
-  ancsChannel.start();
+  // Cache a framed DeviceInfo protobuf before the iPhone can connect, so the
+  // FE10 read on discovery returns a decodable frame (not raw ASCII).
+  await _refreshDeviceInfo();
 
   runApp(const WearLinkApp());
+}
+
+/// Handle an inbound LinkControl (FE60) frame from the iPhone. iOS originates
+/// heartbeats; we answer each with an ACK carrying the matching seq so iOS can
+/// confirm the link is alive. ACKs/NACKs are not re-acknowledged (no pingpong).
+void _handleLinkControl(Uint8List payload) async {
+  try {
+    final lc = LinkControl.fromBuffer(payload);
+    if (lc.kind == LinkControl_Kind.HEARTBEAT) {
+      final ack = LinkControl(kind: LinkControl_Kind.ACK, seq: lc.seq);
+      await gatt.send(
+        GattUuid.linkControl,
+        Uint8List.fromList(ack.writeToBuffer()),
+      );
+    }
+  } catch (_) {
+    // Malformed LinkControl — liveness simply isn't confirmed this round.
+  }
+}
+
+/// Apply an inbound HealthControl (FE21) command from the iPhone. The phone
+/// configures our capture: SET_INTERVAL_MS paces the broadcast, SET_TYPES filters
+/// which samples we forward, SEND_NOW flushes immediately, and START/STOP_ACTIVE
+/// toggles high-rate HR capture.
+void _handleHealthControl(Uint8List payload) async {
+  try {
+    final ctrl = HealthControl.fromBuffer(payload);
+    switch (ctrl.command) {
+      case HealthControl_Command.SEND_NOW:
+        _flushHealth();
+        break;
+      case HealthControl_Command.SET_INTERVAL_MS:
+        if (ctrl.intervalMs > 0) {
+          _healthIntervalMs = ctrl.intervalMs;
+          if (_appResumed) _startHealthTimer();
+        }
+        break;
+      case HealthControl_Command.SET_TYPES:
+        _healthTypes = {...ctrl.types};
+        break;
+      case HealthControl_Command.START_ACTIVE:
+        await healthChannel.startActive();
+        break;
+      case HealthControl_Command.STOP_ACTIVE:
+        await healthChannel.stopActive();
+        break;
+      default:
+        break;
+    }
+  } catch (_) {
+    // Malformed HealthControl — ignore; the phone re-sends config on next connect.
+  }
+}
+
+/// Start (or restart) the health broadcast timer at the current interval.
+void _startHealthTimer() {
+  _healthTimer?.cancel();
+  _healthTimer = Timer.periodic(Duration(milliseconds: _healthIntervalMs), (_) {
+    _refreshDeviceInfo();
+    _flushHealth();
+  });
+}
+
+/// Drain the health buffer and push a HealthFrame to the phone (FE20), filtered
+/// to the types the iPhone requested (if any). No-op when not connected or empty.
+void _flushHealth() {
+  if (bleSignal.connection.value != ConnState.connected) return;
+  var samples = healthSignal.drainBuffer();
+  final types = _healthTypes;
+  if (types != null && types.isNotEmpty) {
+    samples = samples.where((s) => types.contains(s.type)).toList();
+  }
+  if (samples.isEmpty) return;
+  final seq = _healthFrameSeq;
+  _healthFrameSeq = (_healthFrameSeq + 1) & 0xFFFFFFFF;
+  final frame = HealthFrame(sequence: seq, samples: samples, compressed: false);
+  gatt.send(GattUuid.healthStream, Uint8List.fromList(frame.writeToBuffer()));
+}
+
+/// Build a framed DeviceInfo protobuf from native device facts and cache it on
+/// the Kotlin side for the next FE10 read. Called at startup and on each health
+/// timer tick so the battery reading stays fresh.
+Future<void> _refreshDeviceInfo() async {
+  try {
+    final info = await bleChannel.getDeviceInfo();
+    final proto = DeviceInfo(
+      model: (info['model'] as String?) ?? '',
+      firmware: (info['firmware'] as String?) ?? '',
+      batteryPercent: (info['battery'] as int?) ?? 0,
+      preferredMtu: (info['mtu'] as int?) ?? 247,
+    );
+    final payload = Uint8List.fromList(proto.writeToBuffer());
+    final frame = PacketCodec.encode(
+      seq: 0,
+      continuation: false,
+      payload: payload,
+    );
+    await bleChannel.setDeviceInfo(frame);
+  } catch (_) {
+    // Native channel not ready yet — retried on the next health tick.
+  }
 }
 
 class WearLinkApp extends StatefulWidget {
@@ -98,29 +215,18 @@ class _WearLinkAppState extends State<WearLinkApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _healthTimer?.cancel();
     healthSignal.dispose();
-    ancsChannel.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      _appResumed = false;
       _healthTimer?.cancel();
       _healthTimer = null;
     } else if (state == AppLifecycleState.resumed) {
-      _healthTimer?.cancel();
-      _healthTimer = Timer.periodic(const Duration(seconds: 60), (_) {
-        if (bleSignal.connection.value != ConnState.connected) return;
-        final samples = healthSignal.drainBuffer();
-        if (samples.isEmpty) return;
-        final frame = HealthFrame(
-          sequence: 0,
-          samples: samples,
-          compressed: false,
-        );
-        final payload = frame.writeToBuffer();
-        gatt.send(GattUuid.healthStream, Uint8List.fromList(payload));
-      });
+      _appResumed = true;
+      _startHealthTimer();
     }
   }
 

@@ -3,7 +3,7 @@
 > Source of truth for project status. Update after each work session.
 > Architecture spec: see `Software-Structure.md`.
 
-Last updated: 2026-07-08 (Phase 8 — comprehensive review + improvement plan)
+Last updated: 2026-07-11 (Phase 14 — joint iOS + Wear OS interconnect audit + fixes)
 
 ---
 
@@ -172,6 +172,51 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked by
 - [ ] **P5: Remove duplicate ProtoModels** — `Generated/ProtoModels.swift` duplicates `Models/ProtoModels.swift`.
 - [ ] **P5: Add BLE write error handling** — Silent failures in `gatt?.write()` calls.
 - [ ] **P5: Document heartbeat format** — 8-byte payload undocumented.
+
+### Phase 14 — Joint Interconnect Audit + Fixes (2026-07-11)
+
+> Full dual-app BLE interconnect audit (4 Wear OS + 2 iOS subagents, all claims
+> verified against source by the lead). Findings saved to memory:
+> `wear-os-app-validation-2026-07-11`, `ios-app-validation-2026-07-11`.
+> **Stale note:** Phase 9 "P1 UUID mismatch" is RESOLVED — `Uuids.kt`,
+> `BluetoothUUIDs.swift`, and `gatt_client.dart` all use base
+> `96812f26-7d24-4287-98cc-736bc4d49a61` byte-for-byte. UUIDs are NOT a blocker.
+> Phase 9 "P1 health data never sent" is RESOLVED — `main.dart:63` 60s timer
+> calls `drainBuffer()` → `gatt.send(FE20)`. (Sequence hardcoded 0 — see W9.)
+
+**What already works (verified):** UUID parity, packet codec (CRC8 0xF4 exact
+match both sides), scan/connect/reconnect, protobuf field numbers, CallKit +
+MPRemoteCommandCenter (real, not stubs), Health FE20 watch→phone, Call/Notif/
+Music phone→watch writes.
+
+**Wear OS issues:**
+- [x] **W1** `BlePeripheralService.kt:216,243` use `Log.e` with no `import android.util.Log` → **Kotlin compile error (build-blocker)**. **FIXED** — added `import android.util.Log`.
+- [x] **W2** `app/build.gradle.kts:43` `health-services-client:1.1.0` does not exist (latest `1.1.0-rc02`) → **gradle resolution fails (build-blocker)**. **FIXED** — pinned to `1.1.0-rc02`.
+- [x] **W3** `BlePeripheralService.kt:126-135` `propsFor`: FE31 CallAction / FE41 NotifAction / FE51 MusicCommand get `READ|WRITE` only — **no NOTIFY, no CCCD**. Watch cannot push actions to iPhone. **The single biggest interconnect failure.** iOS already lists these for subscribe (`GattClient.swift:47-49`) — its `.notify` guard skips them until the watch exposes NOTIFY. **FIXED** — added FE31/41/51 to the NOTIFY branch (CCCD auto-attached). **Fix was Wear-OS-side only**, as predicted.
+- [x] **W4** `HealthCollector.kt:79-84`: `BODY_SENSORS` declared in manifest but never requested at runtime → collection silently no-ops on fresh install. **FIXED** — `HealthServicesPlugin` now implements `ActivityAware` + a `requestPermissions` method channel; `MainActivity` forwards `onRequestPermissionsResult`. Requests `BODY_SENSORS` (HR) + `ACTIVITY_RECOGNITION` (steps/calories/distance) via `ActivityCompat.requestPermissions`, resolves true when BODY_SENSORS granted (re-checks actual state, not grantResults order). Dart `main()` awaits `healthChannel.requestPermissions()` before `healthSignal.start()`, so collection no longer no-ops. `HealthCollector.start()` keeps its BODY_SENSORS gate as a safety net.
+  - **Follow-up (not in W4 scope, tracked):** background "all the time" access — `BODY_SENSORS_BACKGROUND` (API 33–35) / `READ_HEALTH_DATA_IN_BACKGROUND` (API 36+) is a *separate, Settings-only* grant (the runtime dialog can't give it, and per Google's docs you must NOT request it together with BODY_SENSORS or both are denied). Not declared in the manifest today. Passive monitoring will lose HR when the app is backgrounded until the user grants "all the time" in Settings. This is entangled with **W10** (foreground Service) — a foreground service + the background-sensor permission together keep passive HR alive. Defer to a dedicated background-access task.
+- [x] **W5** `main.dart:41-46`: FE21 `HealthControl` writes decoded then dropped — no `healthSignal` handler. iPhone cannot command watch capture. **FIXED** — `onFrame` now dispatches FE60 and FE21; `_handleHealthControl` decodes `HealthControl` and applies: `SEND_NOW`→`_flushHealth()` (drain+send FE20 immediately), `SET_INTERVAL_MS`→reconfigures `_healthIntervalMs` + restarts timer (only while resumed), `SET_TYPES`→stores `_healthTypes` filter applied in `_flushHealth`, `START/STOP_ACTIVE`→`healthChannel.startActive()/stopActive()`. Timer creation centralized in `_startHealthTimer()`; drain+send centralized in `_flushHealth()`. Lifecycle handler uses `_appResumed` flag + `_startHealthTimer()`.
+- [x] **W6** `BlePeripheralService.kt:201`: FE10 DeviceInfo read returns raw ASCII `"WearLink/0.1"`, not a framed `DeviceInfo` protobuf. **FIXED** — `deviceInfoSnapshot()` (Build.MODEL / Build.VERSION.RELEASE / BatteryManager capacity / MTU 247) → Dart builds `DeviceInfo` proto → `PacketCodec.encode` → cached via `setDeviceInfo`/`setDeviceInfoResponse`. Read handler is offset-aware and caps each response to `negotiatedMtu-1` so iOS's transparent long-read reassembles correctly. Refreshed at startup + each 60s tick for fresh battery.
+- [x] **W7** `notification_signal.dart:114-117`, `music_signal.dart:105-146`: `NotifAction` + `MusicCommand` omit `nonce` (replay contract). **FIXED** — nonce now set in the `sendAction`/`sendCommand` chokepoints (`DateTime.now().millisecondsSinceEpoch & 0xffff`, matching the existing `CallAction` convention), so all NotifAction/MusicCommand sends carry a nonce. (iOS dedup of these nonces — I5 — remains a separate minor gap.)
+- [x] **W8** `main.dart:77`: ANCS built + started natively but `ancsChannel.events()` never listened → inert dead code. No conflict with FE40. **FIXED** — removed the dead Dart ANCS path (import, top-level `ancsChannel`, `start()`, `dispose()`). The custom GATT FE40 already carries iPhone notifications via the NSE. **Follow-up:** native `AncsPlugin`/`AncsClient` are still registered in `MainActivity` but now unused — safe to leave; removal is a separate native cleanup.
+- [x] **W9** `gatt_client.dart:108-111`, `main.dart:68,117`: `_outSeq` not reset on reconnect; `HealthFrame.sequence` hardcoded `0`. **FIXED** — `_outSeq` reset to 0 on `DISCONNECTED` in `gatt_client._onConn` (the watch's GattClient is a singleton that persists across connects); `HealthFrame.sequence` is now monotonic via `_healthFrameSeq` (wraps at 2^32) in `_flushHealth`, so the phone can order/dedup frames.
+- [ ] **W10** `BlePeripheralService.kt:28` + `AndroidManifest.xml:57-60`: `BlePeripheralService` is a plain class, not a `Service` → no foreground service → backgrounding drops iPhone link.
+- [ ] **W11** n/a: MTU 247 never requested (peripheral can't; iOS doesn't either). Minor — chunking handles default MTU.
+
+**iOS issues:**
+- [x] **I1** `BLEManager.swift:189-207` + `GattClient.swift:43-49`: FE10 DeviceInfo dead (double mismatch) — registered as a notify handler but FE10 never subscribed AND no `readValue` anywhere; watch also returns ASCII not protobuf (W6). **FIXED** — `GattClient.didDiscoverCharacteristicsFor` now issues `p.readValue(for: deviceInfo)` after the subscribe loop. The read response flows through the existing `didUpdateValueFor` → `PacketCodec.decode` → reassembler → `onPayload[deviceInfo]` path, firing the existing `BLEManager:189-207` handler that populates `WearableDevice`/`AppContainer.device`. FE10 is a read char (no CCCD), intentionally excluded from the subscribe list. (Watch half = W6.)
+- [x] **I2** n/a: FE21 `HealthControl` never written by iOS — no write site anywhere. iPhone can't command watch health capture. (Doubly dead with W5.) **FIXED** — `GattClient` gained an `onDiscovered` callback fired at the end of `didDiscoverCharacteristicsFor`; BLEManager sets it to call `sendHealthControlConfig()`, which writes two framed `HealthControl` protos to FE21: `setIntervalMs(60000)` + `setTypes([HR,steps,calories,distance,sleep])`. Sent after discovery so the FE21 char is present. Watch half = W5.
+- [x] **I3** `BLEManager.swift:248`: heartbeat writes `Data(count: 8)` (8 zero bytes), not a `LinkControl{HEARTBEAT}` protobuf → watch decodes `kind=KIND_UNSPECIFIED`. **FIXED** — `startHeartbeat` now sends `encodeLinkControl(LinkControl(kind:.heartbeat, seq:heartbeatSeq++, timestampMs:now, payload:Data()))` (framed by `GattClient.write`). Added `heartbeatSeq` field.
+- [x] **I4** `BLEManager.swift:147-151`: LinkControl ack echo re-frames `frame.seq` as 2 bytes → watch decodes `LinkControl{kind=0}`, not an ACK. **FIXED** — `onLinkControl` now decodes `frame.payload` via `decodeLinkControl`; heartbeats → `LinkControl{ack, seq}` ACK (proper proto); inbound ack/nack → liveness, no re-ack (prevents pingpong). **Watch-side half added** (closes the loop): `main.dart` `onFrame` dispatches FE60 → `_handleLinkControl` decodes `LinkControl`, answers heartbeats with `LinkControl{ACK, seq}` via `gatt.send(FE60)`. So iOS-heartbeat → watch-ACK → iOS-liveness now works end-to-end.
+- [ ] **I5** `ProtoSerialization.swift:594,741,898`: `nonce` decoded but never used (no seen-nonce tracking/dedup). Minor replay gap.
+- [~] **I6** `CallController.swift:68,76`: caller name hardcoded `"Unknown"` — no `CNContactStore` lookup; only incoming calls forwarded. **RECLASSIFIED as a PLATFORM LIMITATION (not a fixable bug).** Verified against Apple's CallKit API: `CXCall` (delivered to a third-party `CXCallObserver`) exposes only `uuid` + state booleans (`hasConnected`/`hasEnded`/`isOutgoing`/`isOnHold`) — **no caller name, no phone number**. `localizedCallerName`/`remoteHandle` live on `CXCallUpdate`, visible only to the VoIP app that *owns* the call. WearLink is a third-party *observer* of the system Phone app's calls, so caller identity is unavailable by any means — `CNContactStore` can't help (there is no number to look up). The audit's CNContactStore suggestion was infeasible; corrected the record rather than implement an impossible lookup. "Unknown" is a hard iOS privacy limit.
+- [ ] **I7** `BLEManager.swift:177`+`HealthManager.swift:83`; `BLEManager.swift:171`+`MusicController.swift:192`: double-registration of healthStream & musicCommand handlers (redundant, harmless).
+- [x] **I8** `GattClient.swift:13`: `outSeq` not reset on reconnect (same as W9). **Already correct — no change needed.** `BLEManager.didConnect` constructs a *new* `GattClient` per connect, so `outSeq` is 0 by construction on every reconnect (unlike the watch side, whose `GattClient` is a singleton — see W9).
+- [ ] **I9** `GattClient.swift:70`: MTU 247 never requested (uses `maximumWriteValueLength`). Minor.
+
+**Platform limits (by design — NOT bugs):** 3rd-party notification forwarding blocked (only WearLink-app push via NSE); reply to originating app blocked; other-apps media control blocked; call audio to watch blocked.
+
+**Fix order (approved):** W1+W2 (build) → W3 (actions) → I1+W6 (DeviceInfo) → I3+I4 (heartbeat/ack) → W4 (BODY_SENSORS) → I2+W5 (HealthControl) → cleanup (W7/W8/W9/I8/I6).
 
 ---
 

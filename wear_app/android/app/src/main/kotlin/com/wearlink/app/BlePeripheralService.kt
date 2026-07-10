@@ -13,9 +13,12 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.content.Context
+import android.os.BatteryManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import android.util.Log
 import java.util.Collections
 import java.util.UUID
 
@@ -41,8 +44,39 @@ class BlePeripheralService(private val context: Context) {
     private var connectedDevice: BluetoothDevice? = null
     private val notifying = Collections.synchronizedSet(mutableSetOf<UUID>())
 
+    /** Negotiated ATT MTU (default 23 until onMtuChanged fires). Used to cap FE10
+     *  read responses so iOS's transparent long-read (ATT_READ_BLOB) reassembly
+     *  works when the framed DeviceInfo exceeds a single ATT payload. */
+    @Volatile private var negotiatedMtu: Int = 23
+
     @Volatile var connState = ConnState.DISCONNECTED
         private set
+
+    /**
+     * Framed DeviceInfo bytes returned on an FE10 read. Built by Dart (DeviceInfo
+     * protobuf + PacketCodec framing) and cached here because the GATT read callback
+     * runs on the binder thread and cannot round-trip to Flutter. Dart refreshes
+     * this on the health timer tick so the battery reading stays current.
+     */
+    @Volatile var deviceInfoResponse: ByteArray? = null
+        private set
+
+    /** Snapshot of device facts for the DeviceInfo protobuf: model, firmware
+     *  (Android release), battery capacity (%), and preferred MTU. */
+    fun deviceInfoSnapshot(): Map<String, Any> {
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        val battery = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 0
+        return mapOf(
+            "model" to Build.MODEL,
+            "firmware" to Build.VERSION.RELEASE,
+            "battery" to battery,
+            "mtu" to 247
+        )
+    }
+
+    fun setDeviceInfoResponse(frame: ByteArray) {
+        deviceInfoResponse = frame
+    }
 
     /** Start the GATT server. Returns false if Bluetooth is off or server creation fails. */
     fun start(): Boolean {
@@ -127,8 +161,19 @@ class BlePeripheralService(private val context: Context) {
         val p = BluetoothGattCharacteristic.PROPERTY_READ or
             BluetoothGattCharacteristic.PROPERTY_WRITE
         return when (uuid) {
+            // Notify characteristics — the watch (GATT peripheral) pushes these to
+            // the iPhone (central). A peripheral CANNOT write to a central; the only
+            // peripheral→central data path is notify/indicate. FE20/FE30/FE50/FE60
+            // are the stream/bidirectional chars, and FE31/FE41/FE51 are the ACTION
+            // chars (CallAction/NotifAction/MusicCommand) the watch sends back to the
+            // phone in response to user taps. Without NOTIFY (+CCCD) on these three,
+            // the iPhone can never subscribe, `notifying` never contains them, and
+            // notify() short-circuits — every watch→phone action silently dies.
+            // (iOS already lists FE31/41/51 for subscription in GattClient.swift; it
+            // only needs the watch to expose NOTIFY here.)
             Uuids.healthStream, Uuids.callEvent,
-            Uuids.musicNowPlaying, Uuids.linkControl ->
+            Uuids.musicNowPlaying, Uuids.linkControl,
+            Uuids.callAction, Uuids.notificationAction, Uuids.musicCommand ->
                 p or BluetoothGattCharacteristic.PROPERTY_NOTIFY
             else -> p
         }
@@ -189,6 +234,7 @@ class BlePeripheralService(private val context: Context) {
         }
 
         override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {
+            negotiatedMtu = mtu
             handler.post { onMtuChanged?.invoke(mtu) }
         }
 
@@ -198,7 +244,30 @@ class BlePeripheralService(private val context: Context) {
         ) {
             val gatt = server
             if (characteristic.uuid == Uuids.deviceInfo) {
-                gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, "WearLink/0.1".toByteArray())
+                // Return the Dart-built framed DeviceInfo protobuf. iOS reads FE10
+                // once on discovery; the response flows through its frame decoder
+                // to onPayload[deviceInfo]. Long reads may request offset > 0, so
+                // slice from the cached bytes and echo the requested offset back.
+                val resp = deviceInfoResponse
+                when {
+                    resp == null ->
+                        gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, ByteArray(0))
+                    offset < 0 || offset > resp.size ->
+                        gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_INVALID_ATTRIBUTE_OFFSET, 0, null)
+                    offset == resp.size ->
+                        // End of a long read whose length is an exact multiple of (MTU-1):
+                        // an empty response tells CoreBluetooth the value is complete.
+                        gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, ByteArray(0))
+                    else -> {
+                        // Cap each response to MTU-1 bytes (ATT_READ_RSP overhead is 1)
+                        // so CoreBluetooth reassembles via ATT_READ_BLOB across reads.
+                        val maxBytes = (negotiatedMtu - 1).coerceAtLeast(20)
+                        val end = minOf(offset + maxBytes, resp.size)
+                        val slice = if (offset == 0 && end == resp.size) resp
+                                    else resp.copyOfRange(offset, end)
+                        gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, slice)
+                    }
+                }
             } else {
                 gatt?.sendResponse(device, requestId, BluetoothGatt.GATT_READ_NOT_PERMITTED, 0, null)
             }
