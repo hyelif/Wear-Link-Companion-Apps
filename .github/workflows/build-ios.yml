@@ -28,32 +28,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.x (avoid 26.x malformed-unsigned-binary regression)
-        # Xcode 26.x (now the macos-15 "latest-stable") with
-        # CODE_SIGNING_ALLOWED=NO + CODE_SIGN_IDENTITY="" emits a malformed
-        # Mach-O: NO LC_BUILD_VERSION load command and a bare binary with no
-        # embedded code signature. SideStore crashes mid-install (~half
-        # progress bar, no error text) on such binaries — verified across
-        # build-39 (bare binary) AND build-40 (ad-hoc signed but still missing
-        # LC_BUILD_VERSION). Xcode 16.x's linker emits a proper ad-hoc-signed
-        # binary WITH LC_BUILD_VERSION even under CODE_SIGNING_ALLOWED=NO — the
-        # same path as the known-good Flutter `flutter build ios --no-codesign`
-        # reference (bridge_wear_os). Pin to the highest 16.x installed on the
-        # runner. SWIFT_VERSION pinned to 5.9 in project.yml stays compatible.
-        run: |
-          set -e
-          echo "Installed Xcode versions:"
-          ls -d /Applications/Xcode*.app 2>/dev/null | sort -V || true
-          XCODE=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
-          if [ -z "$XCODE" ]; then
-            echo "ERROR: no Xcode 16.x found in /Applications — cannot avoid the 26.x malformed-unsigned-binary regression."
-            echo "Available Xcode apps:"; ls /Applications | grep -i xcode || true
-            exit 1
-          fi
-          echo "Selected: $XCODE"
-          sudo xcode-select -s "$XCODE/Contents/Developer"
-          xcodebuild -version
-          swift --version
+      - name: Select Xcode
+        # latest-stable on the macos-15 image (a 26.x as of mid-2026). The
+        # unsigned archive path below builds clean under it (archive exit 0,
+        # valid ad-hoc signature). SWIFT_VERSION pinned to 5.9 in project.yml
+        # keeps language-mode compatibility. NOTE: an earlier version pinned
+        # Xcode 16.x based on a since-debunked theory that 26.x produced a
+        # malformed install-crashing binary — the install crash was actually
+        # a SideStore 0.6.3 / iOS 26.4 bug (SideStore issue #1174), not the IPA.
+        uses: maxim-lobanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: latest-stable
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -175,19 +160,19 @@ jobs:
           cp -r "$APP" build/ipa/Payload/
 
           # AD-HOC SIGN the .app before zipping.
-          # With CODE_SIGNING_ALLOWED=NO, Xcode 26.3 emits a binary with NO
-          # LC_CODE_SIGNATURE load command and NO _CodeSignature/ dir — a
-          # completely bare Mach-O. iOS requires every app binary to carry an
-          # embedded code signature (minimum ad-hoc). SideStore's minimuxer /
-          # installd rejects a bare binary as malformed -> SideStore crashes
-          # during IPA install. (Older Xcode 16.x ad-hoc-signed via the linker
-          # even with signing "off"; Xcode 26.3 does not — this is the
-          # regression that broke build-39 installation.)
-          # Ad-hoc `--sign -` injects LC_CODE_SIGNATURE + _CodeSignature/
-          # CodeResources. SideStore then resigns with the user's Apple ID
-          # dev cert + generated provisioning profile. No entitlements shipped
-          # (empty entitlements file = correct for free-account SideStore;
-          # SideStore injects its own at resign time).
+          # CODE_SIGNING_ALLOWED=NO makes Xcode skip the signing build phase,
+          # so the archived binary ships WITHOUT a code signature (verified:
+          # no LC_CODE_SIGNATURE, no _CodeSignature dir). An ad-hoc signature
+          # is the standard SideStore/AltStore IPA input shape — SideStore then
+          # re-signs with the user's Apple ID dev cert + generated provisioning
+          # profile. `--sign -` injects LC_CODE_SIGNATURE + _CodeSignature/
+          # CodeResources. No entitlements shipped (empty entitlements file =
+          # correct for free-account SideStore; SideStore injects its own at
+          # resign time).
+          # NOTE: the bare-binary build (build-39) did NOT cause the SideStore
+          # install crash — that was SideStore 0.6.3 / iOS 26.4 issue #1174
+          # (lockdownd drops loopback XPC -> EXC_GUARD). This sign step just
+          # produces the correct, conventional SideStore-ready IPA shape.
           codesign --force --sign - build/ipa/Payload/WearLink.app
           # Verify the signature landed (fail fast if it didn't).
           codesign -dv build/ipa/Payload/WearLink.app
