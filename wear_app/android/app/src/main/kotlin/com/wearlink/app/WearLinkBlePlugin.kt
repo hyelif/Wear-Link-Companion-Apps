@@ -3,6 +3,7 @@ package com.wearlink.app
 import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
@@ -18,15 +19,22 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import java.util.UUID
 
-/// Bridges native BlePeripheralService to Flutter.
-///   MethodChannel  "wearlink/ble"      -> start, stop, advertiseStart, advertiseStop, notify,
+/// Bridges native BlePeripheralService (now a real foreground Service) to
+/// Flutter.
+///   MethodChannel  "wearlink/ble"      -> start, stop, advertiseStart, advertiseStop,
+///                                         notify, getDeviceInfo, setDeviceInfo,
 ///                                         requestPermissions
 ///   EventChannel   "wearlink/ble/events" -> {type: "conn"|"frame", ...}
+///
+/// The plugin no longer constructs BlePeripheralService directly. Instead it
+/// wires static callbacks on the companion (BEFORE the service is launched)
+/// and starts/stops the Service via the system. The running instance is
+/// reached through BlePeripheralService.instance.
 class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamHandler, ActivityAware {
 
     private lateinit var methodChannel: MethodChannel
     private lateinit var eventChannel: EventChannel
-    private lateinit var service: BlePeripheralService
+    private lateinit var ctx: Context
     private var eventSink: EventChannel.EventSink? = null
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -51,14 +59,17 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        val ctx: Context = binding.applicationContext
-        service = BlePeripheralService(ctx)
-        service.onConnState = { s ->
+        ctx = binding.applicationContext
+        // Wire static callbacks on the companion BEFORE the service is launched.
+        // onCreate() copies these into the instance fields, so events fired after
+        // creation reach Flutter. Posting to the main thread keeps the EventChannel
+        // thread-safe (GATT callbacks arrive on binder/GATT threads).
+        BlePeripheralService.sOnConn = { s ->
             mainHandler.post {
                 eventSink?.success(mapOf("type" to "conn", "state" to s.name))
             }
         }
-        service.onFrame = { uuid, frame ->
+        BlePeripheralService.sOnFrame = { uuid, frame ->
             mainHandler.post {
                 eventSink?.success(
                     mapOf("type" to "frame", "uuid" to uuid.toString(), "data" to frame)
@@ -76,20 +87,35 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
     override fun onMethodCall(call: MethodCall, result: Result) {
         try {
             when (call.method) {
-                "start" -> { service.start(); result.success(true) }
-                "stop" -> { service.stop(); result.success(true) }
-                "advertiseStart" -> { service.startAdvertising(); result.success(true) }
-                "advertiseStop" -> { service.stopAdvertising(); result.success(true) }
-                "notify" -> {
-                    val uuid = UUID.fromString(call.argument<String>("uuid"))
-                    @Suppress("UNCHECKED_CAST")
-                    val data = (call.argument<ByteArray>("data") ?: ByteArray(0))
-                    result.success(service.notify(uuid, data))
+                "start" -> {
+                    // Launch the foreground service (legal: activity is in the
+                    // foreground when this method channel call fires).
+                    BlePeripheralService.launch(ctx)
+                    result.success(true)
                 }
-                "getDeviceInfo" -> result.success(service.deviceInfoSnapshot())
+                "stop" -> {
+                    ctx.stopService(Intent(ctx, BlePeripheralService::class.java))
+                    result.success(true)
+                }
+                "advertiseStart" -> {
+                    BlePeripheralService.instance?.startAdvertising()
+                    result.success(true)
+                }
+                "advertiseStop" -> {
+                    BlePeripheralService.instance?.stopAdvertising()
+                    result.success(true)
+                }
+                "notify" -> {
+                    val inst = BlePeripheralService.instance
+                    val uuid = UUID.fromString(call.argument<String>("uuid"))
+                    val data = call.argument<ByteArray>("data") ?: ByteArray(0)
+                    result.success(inst?.notify(uuid, data) ?: false)
+                }
+                "getDeviceInfo" ->
+                    result.success(BlePeripheralService.instance?.deviceInfoSnapshot() ?: emptyMap<String, Any>())
                 "setDeviceInfo" -> {
                     val data = call.argument<ByteArray>("data") ?: ByteArray(0)
-                    service.setDeviceInfoResponse(data)
+                    BlePeripheralService.instance?.setDeviceInfoResponse(data)
                     result.success(true)
                 }
                 "requestPermissions" -> requestBlePermissions(result)
@@ -112,7 +138,16 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
-        try { service.stop() } catch (_: Throwable) {}
+        try {
+            ctx.stopService(Intent(ctx, BlePeripheralService::class.java))
+        } catch (_: Throwable) {}
+        // Drop the static callback holders so a START_STICKY system-restart of the
+        // service (before a new engine re-attaches) does not copy stale lambdas
+        // that capture this dead plugin's eventSink. A fresh attach re-sets them.
+        BlePeripheralService.sOnConn = null
+        BlePeripheralService.sOnFrame = null
+        BlePeripheralService.sOnMtu = null
+        BlePeripheralService.sOnError = null
     }
 
     // ---- Runtime permissions (Wear OS 3+ / API 31+) ---------------------
