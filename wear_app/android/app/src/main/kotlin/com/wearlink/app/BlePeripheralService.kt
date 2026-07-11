@@ -56,6 +56,13 @@ class BlePeripheralService(private val context: Context) {
     @Volatile var connState = ConnState.DISCONNECTED
         private set
 
+    /// True while the advertiser is actively running. Guards against
+    /// ADVERTISE_FAILED_ALREADY_STARTED (errorCode 3), which happened because
+    /// on disconnect we called startAdvertising() before the previous (connect
+    /// -time) advertiser instance had fully torn down — making the watch
+    /// permanently invisible after the first connection attempt.
+    @Volatile private var isAdvertising = false
+
     /**
      * Framed DeviceInfo bytes returned on an FE10 read. Built by Dart (DeviceInfo
      * protobuf + PacketCodec framing) and cached here because the GATT read callback
@@ -113,14 +120,24 @@ class BlePeripheralService(private val context: Context) {
 
     private val advCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
+            isAdvertising = true
             Log.i(TAG, "advertise onStartSuccess — watch is broadcasting service UUID")
         }
         override fun onStartFailure(errorCode: Int) {
+            isAdvertising = false
             // ADVERTISE_FAILED_FEATURE_UNSUPPORTED = 1
             // ADVERTISE_FAILED_TOO_MANY_ADVERTISERS = 2
             // ADVERTISE_FAILED_ALREADY_STARTED = 3
             // ADVERTISE_FAILED_DATA_TOO_LARGE = 4
             // ADVERTISE_FAILED_INTERNAL_ERROR = 5
+            // errorCode 3 (ALREADY_STARTED) means a previous advertise instance
+            // is still tearing down. Retry once after a short delay instead of
+            // giving up — otherwise the watch stays invisible until app restart.
+            if (errorCode == 3) {
+                Log.w(TAG, "advertise onStartFailure errorCode=3 (ALREADY_STARTED) — retrying in 300ms")
+                handler.postDelayed({ startAdvertising() }, 300)
+                return
+            }
             // The most common cause on a fresh install: BLUETOOTH_ADVERTISE not
             // granted at runtime (API 31+) — the advertiser rejects with
             // FEATURE_UNSUPPORTED / INTERNAL_ERROR instead of a permission error.
@@ -132,6 +149,10 @@ class BlePeripheralService(private val context: Context) {
     }
 
     fun startAdvertising() {
+        if (isAdvertising) {
+            Log.i(TAG, "startAdvertising: already advertising — skip")
+            return
+        }
         val a = advertiser ?: adapter?.bluetoothLeAdvertiser
         if (a == null) {
             Log.e(TAG, "startAdvertising: bluetoothLeAdvertiser is null (BLE perms/BT off)")
@@ -159,8 +180,10 @@ class BlePeripheralService(private val context: Context) {
     }
 
     fun stopAdvertising() {
+        if (!isAdvertising && advertiser == null) return
         advertiser?.stopAdvertising(advCallback)
         advertiser = null
+        isAdvertising = false
     }
 
     // ---- GATT service setup --------------------------------------------
@@ -248,10 +271,14 @@ class BlePeripheralService(private val context: Context) {
 
     private val gattCallback = object : BluetoothGattServerCallback() {
 
+        override fun onServiceAdded(status: Int, service: android.bluetooth.BluetoothGattService) {
+            Log.i(TAG, "onServiceAdded status=$status (0=success) service=${service.uuid} — GATT service registered")
+        }
+
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
-                    Log.i(TAG, "GATT central CONNECTED: ${device.address}")
+                    Log.i(TAG, "GATT central CONNECTED: ${device.address} (status=$status)")
                     connectedDevice = device
                     stopAdvertising()
                     setConn(ConnState.CONNECTED)
@@ -261,13 +288,16 @@ class BlePeripheralService(private val context: Context) {
                     connectedDevice = null
                     notifying.clear()
                     setConn(ConnState.DISCONNECTED)
-                    startAdvertising()
+                    // Delay re-advertise ~300ms so the previous advertiser
+                    // instance fully tears down — avoids ALREADY_STARTED (errorCode 3).
+                    handler.postDelayed({ startAdvertising() }, 300)
                 }
             }
         }
 
         override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {
             negotiatedMtu = mtu
+            Log.i(TAG, "MTU negotiated=$mtu")
             handler.post { onMtuChanged?.invoke(mtu) }
         }
 
@@ -275,6 +305,7 @@ class BlePeripheralService(private val context: Context) {
             device: BluetoothDevice, requestId: Int, offset: Int,
             characteristic: BluetoothGattCharacteristic
         ) {
+            Log.i(TAG, "READ req char=${characteristic.uuid} offset=$offset")
             val gatt = server
             if (characteristic.uuid == Uuids.deviceInfo) {
                 // Return the Dart-built framed DeviceInfo protobuf. iOS reads FE10
@@ -312,6 +343,7 @@ class BlePeripheralService(private val context: Context) {
             preparedWrite: Boolean, responseNeeded: Boolean,
             offset: Int, value: ByteArray
         ) {
+            Log.i(TAG, "WRITE req char=${characteristic.uuid} offset=$offset len=${value.size} responseNeeded=$responseNeeded")
             try {
                 onFrame?.invoke(characteristic.uuid, value)
             } catch (e: Exception) {
@@ -336,8 +368,10 @@ class BlePeripheralService(private val context: Context) {
                     if (charUuid != null) {
                         if (value.isNotEmpty() && (value[0].toInt() and 0x01) != 0) {
                             notifying.add(charUuid)
+                            Log.i(TAG, "CCCD ENABLE notify for char=$charUuid")
                         } else {
                             notifying.remove(charUuid)
+                            Log.i(TAG, "CCCD DISABLE notify for char=$charUuid")
                         }
                     }
                 }
