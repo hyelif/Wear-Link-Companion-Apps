@@ -138,11 +138,17 @@ class BlePeripheralService(private val context: Context) {
             return
         }
         advertiser = a
+        // LOW_LATENCY + HIGH_TX while disconnected: advertise ~every 100ms at
+        // high power so the iPhone's duty-cycled scan (2s on / 8s off) reliably
+        // catches us on first connect. Battery cost is bounded because we
+        // stopAdvertising() the moment a central connects (onConnectionStateChange).
+        // LOW_POWER/LOW_TX (1s, weak) was marginal for first-time discovery — the
+        // watch advertised but iOS often missed it within a 2s scan window.
         val settings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_POWER)
+            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setConnectable(true)
             .setTimeout(0) // advertise until stopped
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_LOW)
+            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .build()
         val data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)

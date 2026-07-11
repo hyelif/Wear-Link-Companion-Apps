@@ -15,10 +15,15 @@ final class GattClient: NSObject, CBPeripheralDelegate {
     /// Per-uuid inbound payload handlers (set by feature code in later phases).
     var onPayload: [CBUUID: (Data) -> Void] = [:]
     var onLinkControl: ((PacketCodec.Frame) -> Void)?
+    /// Logs discovery/error milestones into BLEManager's in-app buffer (no Mac
+    /// needed to diagnose a failed service/characteristic discovery).
+    var onLog: ((String) -> Void)?
     /// Fires once after characteristics are discovered, subscribed, and FE10 read,
     /// so feature code can issue commands that require the chars to be present
     /// (e.g. the FE21 HealthControl config the phone sends on connect).
     var onDiscovered: (() -> Void)?
+
+    private func log(_ text: String) { onLog?(text) }
 
     init(peripheral: CBPeripheral) {
         self.peripheral = peripheral
@@ -32,18 +37,28 @@ final class GattClient: NSObject, CBPeripheralDelegate {
 
     func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
         if let error = error {
-            print("[GattClient] didDiscoverServices error: \(error.localizedDescription)")
+            log("didDiscoverServices ERROR: \(error.localizedDescription)")
+            return
         }
-        guard let s = p.services?.first(where: { $0.uuid == WearLinkUUID.service }) else { return }
+        let names = (p.services ?? []).map { $0.uuid.uuidString }.joined(separator: ", ")
+        log("didDiscoverServices: found [\(names)]")
+        guard let s = p.services?.first(where: { $0.uuid == WearLinkUUID.service }) else {
+            log("ERROR: WearLink service \(WearLinkUUID.service.uuidString) NOT found in discovered services")
+            return
+        }
         p.discoverCharacteristics(nil, for: s)
     }
 
     func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         if let error = error {
-            print("[GattClient] didDiscoverCharacteristicsFor error: \(error.localizedDescription)")
+            log("didDiscoverCharacteristics ERROR: \(error.localizedDescription)")
+            return
         }
         for c in service.characteristics ?? [] { chars[c.uuid] = c }
+        let found = (service.characteristics ?? []).map { $0.uuid.uuidString }.joined(separator: ", ")
+        log("didDiscoverCharacteristics: \(service.characteristics?.count ?? 0) chars [\(found)]")
         // Subscribe to all notify characteristics (watch→iOS and bidirectional).
+        var subscribed = 0
         for uuid in [WearLinkUUID.healthStream,
                     WearLinkUUID.callEvent,
                     WearLinkUUID.musicNowPlaying,
@@ -53,8 +68,12 @@ final class GattClient: NSObject, CBPeripheralDelegate {
                     WearLinkUUID.musicCommand] {
             if let c = chars[uuid], c.properties.contains(CBCharacteristicProperties.notify) {
                 p.setNotifyValue(true, for: c)
+                subscribed += 1
+            } else if chars[uuid] == nil {
+                log("WARNING: expected char \(uuid.uuidString) missing — watch did not expose it")
             }
         }
+        log("Subscribed to \(subscribed) notify characteristics")
         // Read FE10 DeviceInfo once on discovery. The watch responds with a framed
         // DeviceInfo protobuf; the response arrives in didUpdateValueFor, is decoded
         // by PacketCodec, and is dispatched to onPayload[deviceInfo] (BLEManager
@@ -62,6 +81,9 @@ final class GattClient: NSObject, CBPeripheralDelegate {
         // characteristic (no CCCD), so it is intentionally NOT in the subscribe list.
         if let di = chars[WearLinkUUID.deviceInfo] {
             p.readValue(for: di)
+            log("Reading FE10 DeviceInfo")
+        } else {
+            log("WARNING: FE10 DeviceInfo char missing")
         }
         // Feature code (BLEManager) sends watch config (HealthControl) now that
         // the characteristics are present and subscribed.

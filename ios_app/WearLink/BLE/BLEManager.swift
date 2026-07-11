@@ -2,6 +2,19 @@ import Foundation
 import CoreBluetooth
 import os
 
+/// In-app BLE log entry (mirrored to os_log + shown in BLELogView so the
+/// connection can be diagnosed without a Mac/Console.app).
+struct BLELogEntry: Identifiable, Hashable {
+    let id = UUID()
+    let date: Date
+    let level: BLELogLevel
+    let text: String
+}
+
+enum BLELogLevel: String, Hashable {
+    case info, warning, error
+}
+
 /// Central-side BLE manager. Scans for the WearLink watch, connects, bonds,
 /// and exposes the discovered `GattClient`.
 ///
@@ -14,6 +27,27 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     /// `log` CLI even for SideStore-installed builds (where `print()` output is
     /// not attached to a debugger). Filter Console by subsystem "com.wearlink".
     private let logger = Logger(subsystem: "com.wearlink", category: "BLE")
+
+    /// In-app log buffer shown by BLELogView (no Mac needed). Capped to 300
+    /// entries to bound memory; oldest dropped when full.
+    private(set) var logEntries: [BLELogEntry] = []
+    private let maxLogEntries = 300
+
+    /// Append a milestone to both os_log and the in-app buffer.
+    func log(_ level: BLELogLevel = .info, _ text: String) {
+        let entry = BLELogEntry(date: Date(), level: level, text: text)
+        logEntries.append(entry)
+        if logEntries.count > maxLogEntries {
+            logEntries.removeFirst(logEntries.count - maxLogEntries)
+        }
+        switch level {
+        case .info:  logger.info("\(text, privacy: .public)")
+        case .warning: logger.warning("\(text, privacy: .public)")
+        case .error: logger.error("\(text, privacy: .public)")
+        }
+    }
+
+    func clearLogs() { logEntries.removeAll() }
 
     enum State: Equatable {
         case poweredOff, scanning, connecting, connected, disconnected(Error?)
@@ -64,6 +98,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             options: [CBCentralManagerOptionShowPowerAlertKey: false])
         super.init()
         central.delegate = self
+        log(.info, "BLEManager init — waiting for CBCentralManager state (Bluetooth permission prompt may appear)")
     }
 
     deinit {
@@ -73,7 +108,10 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     }
 
     func startScanning() {
-        guard central.state == .poweredOn else { return }
+        guard central.state == .poweredOn else {
+            log(.warning, "startScanning called but central.state=\(cbStateName(central.state)) — not poweredOn (Bluetooth off or permission denied?)")
+            return
+        }
         beginScanCycle()
     }
 
@@ -83,6 +121,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         central.scanForPeripherals(withServices: [WearLinkUUID.service],
                                    options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
         state = .scanning
+        log(.info, "Scan: scanning for watch (service \(WearLinkUUID.service.uuidString), 2s on)…")
         scanTimer = Timer.scheduledTimer(withTimeInterval: scanOn, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
@@ -91,6 +130,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
                 // period up to scanOffMax (2 min) to save battery.
                 let rest = min(self.scanOff * pow(2.0, Double(self.scanFailureCount)), self.scanOffMax)
                 self.scanFailureCount += 1
+                self.log(.info, "Scan: no watch found — resting \(String(format: "%.1f", rest))s before retry (attempt \(self.scanFailureCount))")
                 self.restTimer = Timer.scheduledTimer(withTimeInterval: rest, repeats: false) { [weak self] _ in
                     Task { @MainActor in
                         self?.beginScanCycle()
@@ -100,30 +140,42 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         }
     }
 
+    private func cbStateName(_ s: CBManagerState) -> String {
+        switch s {
+        case .unknown: return "unknown"
+        case .resetting: return "resetting"
+        case .unsupported: return "unsupported"
+        case .unauthorized: return "unauthorized"
+        case .poweredOff: return "poweredOff"
+        case .poweredOn: return "poweredOn"
+        @unknown default: return "other"
+        }
+    }
+
     nonisolated func centralManagerDidUpdateState(_ c: CBCentralManager) {
         Task { @MainActor in
             switch c.state {
             case .poweredOn:
-                logger.info("CBCentralManager poweredOn — start scanning")
+                log(.info, "CBCentralManager poweredOn — start scanning")
                 startScanning()
             case .poweredOff:
-                logger.info("CBCentralManager poweredOff")
+                log(.warning, "CBCentralManager poweredOff — Bluetooth is OFF on the iPhone")
                 state = .poweredOff
                 invalidateAll()
             case .unauthorized:
-                logger.error("CBCentralManager unauthorized — Bluetooth permission NOT granted. Open Settings → WearLink → Bluetooth")
+                log(.error, "CBCentralManager unauthorized — Bluetooth permission NOT granted. Open Settings → WearLink → enable Bluetooth")
                 state = .poweredOff
                 invalidateAll()
             case .unsupported:
-                logger.error("CBCentralManager unsupported on this device")
+                log(.error, "CBCentralManager unsupported on this device")
                 state = .poweredOff
                 invalidateAll()
             case .resetting:
-                logger.info("CBCentralManager resetting")
+                log(.warning, "CBCentralManager resetting")
                 state = .poweredOff
                 invalidateAll()
             case .unknown:
-                break
+                log(.info, "CBCentralManager state unknown")
             @unknown default:
                 break
             }
@@ -143,7 +195,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
                         didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
         Task { @MainActor in
-            logger.info("Discovered WearLink watch (RSSI=\(RSSI)) — connecting")
+            log(.info, "Discovered WearLink watch (RSSI=\(RSSI.intValue)) — connecting")
             central.stopScan()
             scanTimer?.invalidate(); restTimer?.invalidate()
             scanFailureCount = 0  // Reset backoff on discovery
@@ -154,8 +206,12 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         Task { @MainActor in
-            logger.info("Connected to watch — discovering GATT services")
+            log(.info, "Connected to watch — discovering GATT services")
             let client = GattClient(peripheral: peripheral)
+            // Feed GattClient discovery/error logs into the in-app buffer.
+            client.onLog = { [weak self] text in
+                self?.log(.info, text)
+            }
             // LinkControl (FE60) keepalive handshake. The watch may originate
             // heartbeats; we ACK those with a matching seq. We also originate
             // heartbeats (startHeartbeat); inbound ACKs/NACKs for those are proof of
@@ -211,7 +267,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             self.state = .connected
             peripheral.delegate = client
             client.discoverServices()
-            logger.info("GATT connected — state=.connected, discovering services")
+            log(.info, "GATT connected — state=.connected, discovering services")
             self.startHeartbeat()
             // Register device info handler — decode FE10 notify payload into WearableDevice.
             client.onPayload[WearLinkUUID.deviceInfo] = { [weak self] data in
@@ -231,6 +287,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
                     )
                     // Update the AppContainer's device — this triggers @Observable view refresh.
                     self.appContainer?.device = device
+                    self.log(.info, "DeviceInfo received: model=\(info.model) fw=\(info.firmware) battery=\(info.batteryPercent)%")
                 }
             }
             // Notify feature controllers that a new BLE connection is established.
@@ -256,6 +313,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         Task { @MainActor in
+            log(.error, "Failed to connect to watch: \(error?.localizedDescription ?? "unknown")")
             state = .disconnected(error)
             beginScanCycle()
         }
@@ -269,6 +327,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             gatt = nil
             healthManager?.clear()
             state = .disconnected(error)
+            log(.warning, "Disconnected from watch: \(error?.localizedDescription ?? "clean") — resuming scan")
             // Re-enter scan cycle after a brief rest.
             beginScanCycle()
         }
@@ -299,6 +358,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     /// discovery completes (onDiscovered) so the FE21 characteristic is present.
     private func sendHealthControlConfig() {
         guard let g = gatt else { return }
+        log(.info, "GATT discovered — sending health config (FE21: interval=60s, types=HR+steps+cal+dist+sleep)")
         let setInterval = HealthControl(command: .setIntervalMs, intervalMs: 60_000, types: [])
         g.write(ProtoCodec.encodeHealthControl(setInterval), to: WearLinkUUID.healthControl)
         let setTypes = HealthControl(command: .setTypes, intervalMs: 0,

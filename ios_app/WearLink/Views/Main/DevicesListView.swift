@@ -89,6 +89,13 @@ struct DevicesListView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Devices")
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    NavigationLink(destination: BLELogView()) {
+                        Label("BLE Logs", systemImage: "doc.text.magnifyingglass")
+                            .labelStyle(.iconOnly)
+                            .foregroundStyle(connColor)
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink(destination: DeviceDetailsView()) {
                         Image(systemName: "gearshape.fill")
@@ -96,6 +103,21 @@ struct DevicesListView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - BLE status color (toolbar log icon)
+
+private extension DevicesListView {
+    /// Mirror of the BLE state for the toolbar log icon color: green=connected,
+    /// orange=scanning/connecting, red=error, gray=off/no permission.
+    var connColor: Color {
+        switch container.ble.state {
+        case .connected: return .green
+        case .scanning, .connecting: return .orange
+        case .disconnected(let err) where err != nil: return .red
+        default: return .secondary
         }
     }
 }

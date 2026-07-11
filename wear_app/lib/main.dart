@@ -43,6 +43,14 @@ bool _appResumed = true;
 int _healthFrameSeq = 0;
 
 Future<void> main() async {
+  // Binding must be initialized before any platform-channel use; channel
+  // constructors below call EventChannel.receiveBroadcastStream().listen().
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 1. Construct ALL state + channels synchronously BEFORE runApp so the
+  //    first frame never hits an unassigned late final global (the prior
+  //    black-screen root cause: healthSignal was built after runApp, so
+  //    ConnectionScreen.build threw LateInitializationError on frame 1).
   bleSignal = BleSignal();
   callSignal = CallSignal();
   notificationSignal = NotificationSignal();
@@ -50,57 +58,58 @@ Future<void> main() async {
 
   bleChannel = BlePeripheralChannel();
   gatt = GattClient(channel: bleChannel);
-
-  // Wear OS 3+ / API 31+ requires a runtime grant for the dangerous BLE perms
-  // (BLUETOOTH_SCAN/CONNECT/ADVERTISE) before the GATT server can run and the
-  // advertiser can broadcast. Without it, startAdvertising() silently fails
-  // (onStartFailure) and the watch is invisible to the iPhone. Must be awaited
-  // before gatt.start() (which calls channel.start() + advertiseStart()).
-  await bleChannel.requestPermissions();
-
-  gatt.start(
-    onFrame: (uuid, payload) {
-      bleSignal.setFrame(uuid, payload);
-      if (uuid == GattUuid.linkControl) {
-        _handleLinkControl(payload);
-        return;
-      }
-      if (uuid == GattUuid.healthControl) {
-        _handleHealthControl(payload);
-        return;
-      }
-      callSignal.updateFromFrame(uuid, payload);
-      notificationSignal.updateFromFrame(uuid, payload);
-      musicSignal.updateFromFrame(uuid, payload);
-    },
-    onConn: (state) {
-      bleSignal.setConn(switch (state) {
-        'CONNECTED' => ConnState.connected,
-        'CONNECTING' => ConnState.connecting,
-        _ => ConnState.disconnected,
-      });
-    },
-  );
-
-  musicSignal.gatt = gatt;
-  notificationSignal.gattClient = gatt;
-
-  // Wear OS 3+ requires a runtime grant for BODY_SENSORS (HR) + ACTIVITY_RECOGNITION
-  // (steps/calories/distance). Request before starting collection, otherwise
-  // HealthCollector.start() silently no-ops on a fresh install (W4).
   healthChannel = HealthServicesChannel();
   healthSignal = HealthSignal(healthChannel);
-  await healthChannel.requestPermissions();
-  healthSignal.start();
 
-  // Broadcast health data to the phone on the configured interval (default 60 s).
-  _startHealthTimer();
-
-  // Cache a framed DeviceInfo protobuf before the iPhone can connect, so the
-  // FE10 read on discovery returns a decodable frame (not raw ASCII).
-  await _refreshDeviceInfo();
-
+  // 2. Render UI immediately. ConnectionScreen reads only the globals above,
+  //    all now initialized, so the first frame is safe.
   runApp(const WearLinkApp());
+
+  // 3. Background async init: runtime permissions (may show system dialogs)
+  //    + native GATT server / advertiser / health collector start. UI is
+  //    already on screen, so dialogs overlay a rendered app, not a black box.
+  try {
+    // BLE perms are the hard gate for the GATT server + advertiser. Await
+    // before gatt.start() or the advertiser silently fails (onStartFailure)
+    // and the watch stays invisible to the iPhone.
+    await bleChannel.requestPermissions();
+
+    gatt.start(
+      onFrame: (uuid, payload) {
+        bleSignal.setFrame(uuid, payload);
+        if (uuid == GattUuid.linkControl) {
+          _handleLinkControl(payload);
+          return;
+        }
+        if (uuid == GattUuid.healthControl) {
+          _handleHealthControl(payload);
+          return;
+        }
+        callSignal.updateFromFrame(uuid, payload);
+        notificationSignal.updateFromFrame(uuid, payload);
+        musicSignal.updateFromFrame(uuid, payload);
+      },
+      onConn: (state) {
+        bleSignal.setConn(switch (state) {
+          'CONNECTED' => ConnState.connected,
+          'CONNECTING' => ConnState.connecting,
+          _ => ConnState.disconnected,
+        });
+      },
+    );
+
+    musicSignal.gatt = gatt;
+    notificationSignal.gattClient = gatt;
+
+    // Health perms (BODY_SENSORS + ACTIVITY_RECOGNITION) gate HR/steps capture.
+    await healthChannel.requestPermissions();
+    healthSignal.start();
+
+    _startHealthTimer();
+    await _refreshDeviceInfo();
+  } catch (e) {
+    debugPrint('Critical init failure: $e');
+  }
 }
 
 /// Handle an inbound LinkControl (FE60) frame from the iPhone. iOS originates
@@ -289,7 +298,7 @@ class ConnectionScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            // BLE connection status indicator
+            // 1. BLE Connection Status Indicator
             SignalBuilder(
               builder: (context) {
                 final conn = bleSignal.connection.value;
@@ -310,31 +319,77 @@ class ConnectionScreen extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(connIcon, size: 24, color: connColor),
+                      Icon(connIcon, size: 20, color: connColor),
                       const SizedBox(width: 8),
                       Text(
                         connText,
-                        style: theme.textTheme.titleSmall?.copyWith(color: connColor),
+                        style: theme.textTheme.labelSmall?.copyWith(color: connColor, fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
                 );
               },
             ),
-            const Divider(color: Colors.teal, height: 1),
-            // Scrollable feature cards
+            const SizedBox(height: 8),
+            // 2. Primary Action Chip
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: ActionChip(
+                label: const Text("Quick Sync", style: TextStyle(color: Colors.white)),
+                backgroundColor: Colors.teal,
+                onPressed: () {
+                  // TODO: Trigger immediate health flush
+                },
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // 3. Live Health Stats Card
+            SignalBuilder(
+              builder: (context) {
+                final steps = healthSignal.steps.value;
+                final hr = healthSignal.heartRate.value;
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1A2E),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: Colors.teal.withValues(alpha: 0.3), width: 1),
+                    ),
+                    child: Column(
+                      children: [
+                        Text("Daily Activity", style: theme.textTheme.labelSmall?.copyWith(color: Colors.tealAccent)),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _StatItem(label: "Steps", value: steps.toString(), icon: Icons.directions_walk),
+                            const VerticalDivider(color: Colors.grey),
+                            _StatItem(label: "HR", value: "$hr BPM", icon: Icons.favorite),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            // 4. Feature Navigation
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 children: [
                   _FeatureCard(
                     icon: Icons.favorite,
                     label: 'Health',
                     onTap: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => HealthScreen(health: healthSignal),
-                      ),
+                      MaterialPageRoute(builder: (_) => HealthScreen(health: healthSignal)),
                     ),
                   ),
                   _FeatureCard(
@@ -342,12 +397,7 @@ class ConnectionScreen extends StatelessWidget {
                     label: 'Calls',
                     onTap: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => CallScreen(
-                          callSignal: callSignal,
-                          gattClient: gatt,
-                        ),
-                      ),
+                      MaterialPageRoute(builder: (_) => CallScreen(callSignal: callSignal, gattClient: gatt)),
                     ),
                   ),
                   _FeatureCard(
@@ -355,11 +405,7 @@ class ConnectionScreen extends StatelessWidget {
                     label: 'Notifications',
                     onTap: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => NotificationScreen(
-                          notifSignal: notificationSignal,
-                        ),
-                      ),
+                      MaterialPageRoute(builder: (_) => NotificationScreen(notifSignal: notificationSignal)),
                     ),
                   ),
                   _FeatureCard(
@@ -367,11 +413,10 @@ class ConnectionScreen extends StatelessWidget {
                     label: 'Music',
                     onTap: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => MusicScreen(music: musicSignal),
-                      ),
+                      MaterialPageRoute(builder: (_) => MusicScreen(music: musicSignal)),
                     ),
                   ),
+                  const SizedBox(height: 24), // Bezel padding
                 ],
               ),
             ),
@@ -381,6 +426,26 @@ class ConnectionScreen extends StatelessWidget {
     );
   }
 }
+
+class _StatItem extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _StatItem({required this.label, required this.value, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, size: 16, color: Colors.tealAccent),
+        Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+      ],
+    );
+  }
+}
+
 
 /// A rounded, dark feature card with a teal circular icon, label, and chevron.
 class _FeatureCard extends StatelessWidget {
