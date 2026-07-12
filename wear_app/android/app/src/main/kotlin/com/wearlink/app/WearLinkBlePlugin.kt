@@ -51,6 +51,9 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
         /// Android 12+) to advertise + run a GATT server. Below API 31 these are
         /// install-time grants and the request is a no-op (we still ask; the
         /// system simply returns granted without prompting).
+        /// POST_NOTIFICATIONS is included on API 33+ so the foreground-service
+        /// notification is visible — without it some OEM/Wear-OS builds kill the
+        /// FGS when the screen dims, defeating the whole "survive screen-off" goal.
         private val BLE_RUNTIME_PERMS = arrayOf(
             Manifest.permission.BLUETOOTH_SCAN,
             Manifest.permission.BLUETOOTH_CONNECT,
@@ -75,6 +78,18 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     mapOf("type" to "frame", "uuid" to uuid.toString(), "data" to frame)
                 )
             }
+        }
+        // If the service is ALREADY running (activity recreated by Wear OS while
+        // the FGS kept running), push the fresh callbacks into the live instance
+        // — onCreate only copies them once at first creation, so without this a
+        // re-attached engine would never receive conn/frame events (the instance
+        // would still hold the previous engine's dead-sink lambdas).
+        BlePeripheralService.instance?.let { inst ->
+            inst.onConnState = BlePeripheralService.sOnConn
+            inst.onFrame = BlePeripheralService.sOnFrame
+            inst.onMtuChanged = BlePeripheralService.sOnMtu
+            inst.onError = BlePeripheralService.sOnError
+            Log.i("WearLink/Ble", "onAttachedToEngine: re-attached to running FGS instance")
         }
         methodChannel = MethodChannel(binding.binaryMessenger, "wearlink/ble").also {
             it.setMethodCallHandler(this)
@@ -138,12 +153,17 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
-        try {
-            ctx.stopService(Intent(ctx, BlePeripheralService::class.java))
-        } catch (_: Throwable) {}
+        // CRITICAL: do NOT stop the foreground service here. On Wear OS the
+        // activity is destroyed (engine detaches) within seconds of the screen
+        // dimming — if we stopService() here, the FGS and its BLE advertiser die
+        // exactly when we need them most (screen off), and iOS connect() hangs.
+        // The FGS must outlive the Flutter engine. It is stopped ONLY by an
+        // explicit "stop" method call (user disconnect) or app uninstall.
+        Log.i("WearLink/Ble", "onDetachedFromEngine: keeping FGS alive (advertiser survives)")
         // Drop the static callback holders so a START_STICKY system-restart of the
         // service (before a new engine re-attaches) does not copy stale lambdas
-        // that capture this dead plugin's eventSink. A fresh attach re-sets them.
+        // that capture this dead plugin's eventSink. A fresh attach re-sets them
+        // and pushes them into the live instance (see onAttachedToEngine).
         BlePeripheralService.sOnConn = null
         BlePeripheralService.sOnFrame = null
         BlePeripheralService.sOnMtu = null
@@ -171,17 +191,24 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
             result.success(hasBlePerms())
             return
         }
-        val toRequest = BLE_RUNTIME_PERMS.filter {
+        val toRequest = BLE_RUNTIME_PERMS.toMutableList()
+        // POST_NOTIFICATIONS (API 33+) so the FGS notification shows and the
+        // service is not killed on screen-dim. Not a hard BLE gate, so it is NOT
+        // checked in hasBlePerms — but requested here so it gets granted.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            toRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val need = toRequest.filter {
             ContextCompat.checkSelfPermission(act, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (toRequest.isEmpty()) {
+        if (need.isEmpty()) {
             result.success(true)
             return
         }
         // Drop any overlapping request (shouldn't happen) before stalling a new one.
         pendingPermissionResult?.success(hasBlePerms())
         pendingPermissionResult = result
-        ActivityCompat.requestPermissions(act, toRequest.toTypedArray(), REQ_BLE_PERMS)
+        ActivityCompat.requestPermissions(act, need.toTypedArray(), REQ_BLE_PERMS)
     }
 
     private fun hasBlePerms(): Boolean {

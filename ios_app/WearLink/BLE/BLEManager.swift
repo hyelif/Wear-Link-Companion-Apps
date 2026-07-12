@@ -92,6 +92,20 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     /// Monotonic seq for iOS-originated heartbeats; echoed by the watch in its ACK.
     private var heartbeatSeq: UInt32 = 0
 
+    /// UUID of the watch we last connected to. Persisted so that after the user
+    /// pairs the devices in native Bluetooth Settings, opening the app can reconnect
+    /// directly via retrievePeripherals(withIdentifiers:) without a noisy scan.
+    private let knownPeripheralUUIDKey = "com.wearlink.knownPeripheralUUID"
+    private var knownPeripheralUUID: UUID? {
+        get {
+            guard let uuidString = UserDefaults.standard.string(forKey: knownPeripheralUUIDKey) else { return nil }
+            return UUID(uuidString: uuidString)
+        }
+        set {
+            UserDefaults.standard.set(newValue?.uuidString, forKey: knownPeripheralUUIDKey)
+        }
+    }
+
     override init() {
         // `options` let CoreBluetooth restore state across relaunches.
         self.central = CBCentralManager(delegate: nil, queue: .main,
@@ -112,7 +126,48 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             log(.warning, "startScanning called but central.state=\(cbStateName(central.state)) — not poweredOn (Bluetooth off or permission denied?)")
             return
         }
+        // Native Bluetooth Settings pairing is the foundation: first try to use a
+        // peripheral that iOS already knows (system-connected via Settings, or
+        // previously connected and persisted). Only scan if nothing is retrievable.
+        if connectKnownPeripherals() { return }
         beginScanCycle()
+    }
+
+    /// Attempt to connect without scanning. Returns true if a known/connected
+    /// peripheral was found and a connection attempt is in progress.
+    private func connectKnownPeripherals() -> Bool {
+        // 1. Peripherals currently connected to the system via native Settings or other apps.
+        let connected = central.retrieveConnectedPeripherals(withServices: [WearLinkUUID.service])
+        if let p = connected.first {
+            log(.info, "Native Settings path: found already-connected watch \(p.identifier) — connecting directly")
+            connectToPeripheral(p)
+            return true
+        }
+
+        // 2. Previously connected watch that iOS remembers from a prior session.
+        if let uuid = knownPeripheralUUID {
+            let known = central.retrievePeripherals(withIdentifiers: [uuid])
+            if let p = known.first {
+                log(.info, "Native Settings path: found previously-connected watch \(p.identifier) — connecting directly")
+                connectToPeripheral(p)
+                return true
+            }
+            log(.info, "Known watch UUID \(uuid) is not retrievable; will scan instead")
+        }
+        return false
+    }
+
+    private func connectToPeripheral(_ peripheral: CBPeripheral) {
+        central.stopScan()
+        invalidateScanTimers()
+        scanFailureCount = 0
+        state = .connecting
+        central.connect(peripheral, options: nil)
+    }
+
+    private func invalidateScanTimers() {
+        scanTimer?.invalidate(); scanTimer = nil
+        restTimer?.invalidate(); restTimer = nil
     }
 
     private func beginScanCycle() {
@@ -156,7 +211,7 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         Task { @MainActor in
             switch c.state {
             case .poweredOn:
-                log(.info, "CBCentralManager poweredOn — start scanning")
+                log(.info, "CBCentralManager poweredOn — try native Settings connection first, then scan")
                 startScanning()
             case .poweredOff:
                 log(.warning, "CBCentralManager poweredOff — Bluetooth is OFF on the iPhone")
@@ -196,17 +251,16 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
         Task { @MainActor in
             log(.info, "Discovered WearLink watch (RSSI=\(RSSI.intValue)) — connecting")
-            central.stopScan()
-            scanTimer?.invalidate(); restTimer?.invalidate()
-            scanFailureCount = 0  // Reset backoff on discovery
-            state = .connecting
-            central.connect(peripheral, options: nil)
+            connectToPeripheral(peripheral)
         }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         Task { @MainActor in
-            log(.info, "Connected to watch — discovering GATT services")
+            // Remember this watch so future launches can reconnect directly via
+            // native Settings / retrievePeripherals without a noisy scan.
+            knownPeripheralUUID = peripheral.identifier
+            log(.info, "Connected to watch \(peripheral.identifier) — discovering GATT services")
             let client = GattClient(peripheral: peripheral)
             // Feed GattClient discovery/error logs into the in-app buffer.
             client.onLog = { [weak self] text in

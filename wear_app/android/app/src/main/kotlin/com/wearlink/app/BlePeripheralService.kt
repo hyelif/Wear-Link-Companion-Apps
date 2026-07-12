@@ -87,6 +87,7 @@ class BlePeripheralService : Service() {
     private var advertiser: android.bluetooth.le.BluetoothLeAdvertiser? = null
     private var connectedDevice: BluetoothDevice? = null
     private val notifying = Collections.synchronizedSet(mutableSetOf<UUID>())
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
 
     /** Diagnostic-only receiver for BluetoothDevice.ACTION_BOND_STATE_CHANGED.
      *  Logs the bond progression (BOND_NONE -> BOND_BONDING -> BOND_BONDED) so
@@ -199,11 +200,24 @@ class BlePeripheralService : Service() {
         val notif = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentTitle("WearLink")
-            .setContentText("Connected to phone")
+            .setContentText("Listening for phone")
             .setOngoing(true)
             .build()
         val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         ServiceCompat.startForeground(this, NOTIF_ID, notif, type)
+        Log.i(TAG, "onCreate: FGS started as foreground (type=connectedDevice) — advertiser will survive screen-off")
+        // Hold a PARTIAL_WAKE_LOCK so the CPU does not sleep on screen-off and
+        // freeze the advertiser/GATT thread. The FGS alone keeps the process
+        // alive; the wake lock keeps it SCHEDULABLE. WAKE_LOCK perm is in the
+        // manifest. Released in onDestroy.
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "WearLink:Ble")
+            wakeLock?.acquire()
+            Log.i(TAG, "onCreate: PARTIAL_WAKE_LOCK acquired")
+        } catch (e: Exception) {
+            Log.e(TAG, "onCreate: wakeLock acquire failed", e)
+        }
         // Now start the engine (the old start() body): open GATT server +
         // setupService, then begin advertising immediately. Advertising in
         // onCreate (not via a later advertiseStart call) does two things:
@@ -216,7 +230,7 @@ class BlePeripheralService : Service() {
         //      before onCreate runs (instance==null → silent no-op). Starting
         //      here makes the first-connect path deterministic. The isAdvertising
         //      guard makes the later Dart advertiseStart call idempotent.
-        startEngine()
+        val engineOk = startEngine()
         // Register the bond-state receiver for logcat diagnosis of the LE Secure
         // Connections pairing triggered by the encrypted FE10 read. Diagnostic
         // only — does not drive any logic.
@@ -230,7 +244,8 @@ class BlePeripheralService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "onCreate: failed to register bondReceiver", e)
         }
-        startAdvertising()
+        if (engineOk) startAdvertising()
+        else Log.e(TAG, "onCreate: engine failed — not advertising")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -241,6 +256,7 @@ class BlePeripheralService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        Log.i(TAG, "onDestroy: FGS stopping — advertiser/engine tearing down")
         // Cancel any pending handler work (notably the 300ms delayed re-advertise
         // scheduled on disconnect) BEFORE tearing the engine down. Without this,
         // a 'stop' arriving within 300ms of a disconnect lets startAdvertising()
@@ -254,6 +270,9 @@ class BlePeripheralService : Service() {
             bondReceiverRegistered = false
         }
         stopEngine()
+        // Release the wake lock held since onCreate.
+        try { wakeLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
+        wakeLock = null
         instance = null
         super.onDestroy()
     }
@@ -273,34 +292,30 @@ class BlePeripheralService : Service() {
     }
 
     // ---- Advertising -----------------------------------------------------
+    // Legacy BluetoothLeAdvertiser.startAdvertising is used (NOT the modern
+    // startAdvertisingSet) because the legacy API produces a Legacy:true,
+    // LE_1M-ph advert — confirmed via `dumpsys bluetooth_manager` GATT
+    // Advertiser Map — which iOS CoreBluetooth's scanForPeripherals reliably
+    // discovers. The modern startAdvertisingSet produced an extended advert
+    // (Legacy:false) that iOS's scan never saw ("no watch found" on every
+    // scan cycle). The `le_connectability_state: DISARMED` shown in dumpsys
+    // is a stale/misleading shim metric: the actual advert params report
+    // Connectable=true, which is what the controller advertises.
 
     private val advCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
             isAdvertising = true
-            Log.i(TAG, "advertise onStartSuccess — watch is broadcasting service UUID")
+            Log.i(TAG, "advertise onStartSuccess — watch is broadcasting service UUID (connectable legacy)")
         }
         override fun onStartFailure(errorCode: Int) {
             isAdvertising = false
-            // ADVERTISE_FAILED_DATA_TOO_LARGE = 1
-            // ADVERTISE_FAILED_TOO_MANY_ADVERTISERS = 2
-            // ADVERTISE_FAILED_ALREADY_STARTED = 3
-            // ADVERTISE_FAILED_INTERNAL_ERROR = 4
-            // ADVERTISE_FAILED_FEATURE_UNSUPPORTED = 5
-            // (Values verified against AOSP AdvertiseCallback.java — the prior
-            // comment had DATA_TOO_LARGE and FEATURE_UNSUPPORTED swapped and
-            // INTERNAL_ERROR wrong.)
-            // errorCode 3 (ALREADY_STARTED) means a previous advertise instance
-            // is still tearing down. Retry once after a short delay instead of
-            // giving up — otherwise the watch stays invisible until app restart.
+            // ADVERTISE_FAILED_DATA_TOO_LARGE=1, TOO_MANY_ADVERTISERS=2,
+            // ALREADY_STARTED=3, INTERNAL_ERROR=4, FEATURE_UNSUPPORTED=5.
             if (errorCode == 3) {
                 Log.w(TAG, "advertise onStartFailure errorCode=3 (ALREADY_STARTED) — retrying in 300ms")
                 handler.postDelayed({ startAdvertising() }, 300)
                 return
             }
-            // DATA_TOO_LARGE (errorCode 1) happens when the scan-response payload
-            // (device name) plus overhead exceeds 31 bytes — e.g. a long BT adapter
-            // name like "Galaxy Watch7". Retry ONCE with a name-less scan response
-            // so the watch stays discoverable (UUID-only, the Phase 17 payload).
             if (errorCode == 1 && !nameDropped) {
                 nameDropped = true
                 Log.w(TAG, "advertise onStartFailure errorCode=1 (DATA_TOO_LARGE) " +
@@ -308,9 +323,6 @@ class BlePeripheralService : Service() {
                 handler.postDelayed({ startAdvertising() }, 300)
                 return
             }
-            // The most common cause on a fresh install: BLUETOOTH_ADVERTISE not
-            // granted at runtime (API 31+) — the advertiser rejects with
-            // FEATURE_UNSUPPORTED / INTERNAL_ERROR instead of a permission error.
             Log.e(TAG, "advertise onStartFailure errorCode=$errorCode — " +
                 "watch NOT discoverable. Likely missing BLUETOOTH_ADVERTISE/SCAN/CONNECT " +
                 "runtime permission, or BT off.")
@@ -329,45 +341,35 @@ class BlePeripheralService : Service() {
             return
         }
         advertiser = a
-        // LOW_LATENCY + HIGH_TX while disconnected: advertise ~every 100ms at
-        // high power so the iPhone's duty-cycled scan (2s on / 8s off) reliably
-        // catches us on first connect. Battery cost is bounded because we
-        // stopAdvertising() the moment a central connects (onConnectionStateChange).
-        // LOW_POWER/LOW_TX (1s, weak) was marginal for first-time discovery — the
-        // watch advertised but iOS often missed it within a 2s scan window.
+        // LOW_LATENCY + HIGH_TX + connectable + timeout 0. The 4-arg overload
+        // carries the device name in a separate scan-response packet (its own
+        // 31-byte budget) so the 128-bit service UUID fits in the primary advData.
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setConnectable(true)
-            .setTimeout(0) // advertise until stopped
+            .setTimeout(0)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .build()
         val data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(Uuids.service))
             .build()
-        // Scan response carries the watch's Bluetooth name so iOS shows a
-        // friendly name in the pairing dialog instead of a bare MAC. It gets its
-        // own 31-byte budget separate from the primary advData (which holds the
-        // 128-bit service UUID), so the name cannot overflow the primary packet.
-        // If a previous attempt failed with DATA_TOO_LARGE (errorCode 1), the
-        // name is dropped here and we advertise UUID-only — the Phase 17 payload.
         val scanResponse = AdvertiseData.Builder()
             .setIncludeDeviceName(!nameDropped)
             .build()
         Log.i(TAG, "startAdvertising: requesting to advertise service UUID" +
-            (if (nameDropped) " (name dropped)" else " + device name in scan response"))
+            (if (nameDropped) " (name dropped)" else " + device name in scan response") +
+            " (connectable legacy)")
         a.startAdvertising(settings, data, scanResponse, advCallback)
     }
 
     fun stopAdvertising() {
         if (!isAdvertising && advertiser == null) return
-        advertiser?.stopAdvertising(advCallback)
+        try { advertiser?.stopAdvertising(advCallback) } catch (_: Exception) {}
         advertiser = null
         isAdvertising = false
-        // Reset the name-overflow fallback so the next advertising attempt
-        // re-tries WITH the device name (the adapter name may have been
-        // shortened since the last DATA_TOO_LARGE). The errorCode-1 guard
-        // prevents any loop if it still overflows.
+        // Reset the name-overflow fallback so the next attempt re-tries WITH the
+        // device name. The errorCode==1 guard prevents any loop.
         nameDropped = false
     }
 
@@ -420,17 +422,21 @@ class BlePeripheralService : Service() {
 
     /** Return permissions matching the characteristic's properties.
      *
-     *  FE10 (DeviceInfo) is the ONLY encrypted characteristic: it is the first
-     *  char iOS READS after connect+subscribe. With PERMISSION_READ_ENCRYPTED,
-     *  the Bluedroid stack returns GATT_INSUFFICIENT_AUTHENTICATION (0x05) to
-     *  an unbonded iOS central WITHOUT invoking onCharacteristicReadRequest, so
-     *  iOS auto-shows the system "Pair" dialog and retries the read after the
-     *  LE Secure Connections bond completes. Every other characteristic stays
-     *  unencrypted so service discovery, CCCD subscribe writes, and all
-     *  health/call/music traffic keep working on an unpaired link — graceful
-     *  degradation if the user dismisses the pairing dialog (only DeviceInfo is
-     *  lost, not function). The CCCD descriptor (setupService) stays
-     *  PERMISSION_WRITE (unencrypted) so pre-pairing subscribes still succeed. */
+     *  FE10 (DeviceInfo) is PERMISSION_READ_ENCRYPTED — this is the bonding
+     *  trigger. The iPhone is paired to the watch in native Bluetooth Settings
+     *  (a classic BR/EDR bond). When the iOS app's CoreBluetooth connect() then
+     *  reads FE10, Bluedroid returns GATT_INSUFFICIENT_AUTHENTICATION, and iOS
+     *  derives a cross-transport LE key from the existing classic bond (no extra
+     *  pair dialog needed) — making the BLE GATT connection ENCRYPTED so it
+     *  actually completes instead of hanging on an unencrypted link to a bonded
+     *  device. This is how the app "uses" the settings-established pairing.
+     *
+     *  All OTHER chars stay UNENCRYPTED (PERMISSION_READ / PERMISSION_WRITE) so
+     *  health/call/music/notify work even if the bond step is skipped — graceful
+     *  degradation, only DeviceInfo (name) is gated. The CCCD descriptor
+     *  (setupService) is PERMISSION_WRITE (unencrypted) so notify subscriptions
+     *  work without re-pairing. Do NOT use PERMISSION_*_ENCRYPTED_MITM (forces
+     *  6-digit passkey). */
     private fun permsFor(uuid: UUID): Int {
         val props = propsFor(uuid)
         var perms = 0
@@ -488,8 +494,17 @@ class BlePeripheralService : Service() {
                     connectedDevice = null
                     notifying.clear()
                     setConn(ConnState.DISCONNECTED)
-                    // Delay re-advertise ~300ms so the previous advertiser
-                    // instance fully tears down — avoids ALREADY_STARTED (errorCode 3).
+                    // A central connect pauses the controller-level advertiser. If
+                    // the CONNECTED callback did not fire (a rapid connect/drop),
+                    // stopAdvertising() never ran and isAdvertising is stale true.
+                    // The re-advertise guard would then skip ("already advertising
+                    // — skip"), leaving the watch invisible. Reset unconditionally
+                    // before re-advertise. nameDropped is preserved so an overflowed
+                    // device name is not retried every reconnect cycle.
+                    isAdvertising = false
+                    advertiser = null
+                    // Delay re-advertise ~300ms so the previous advertiser instance
+                    // fully tears down — avoids ALREADY_STARTED (errorCode 3).
                     handler.postDelayed({ startAdvertising() }, 300)
                 }
             }

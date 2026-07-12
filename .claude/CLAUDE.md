@@ -1,196 +1,49 @@
-# [Your Project Name]
+# WearLink
 
-**Project:** [Brief description]
-**Status:** [Development/Production/Research]
-**Primary Goal:** [What are you building?]
+**Project:** Companion apps — iPhone ⟷ Wear OS watch over BLE
+**Status:** Development
+**Primary Goal:** Fully functioning iOS + Wear OS companion apps
 
----
-
-## Quick Reference
-
-| What | Where | Command |
-|------|-------|---------|
-| Start | `[entry_point.py]` | `python [entry_point.py]` |
-| Test | `[test_directory]` | `pytest` |
-| Deploy | `[deployment_script]` | `./deploy.sh` |
-
----
-
-## Architecture Overview
-
-```
-[Your system architecture diagram - text-based is fine]
-
-Example:
-Client → API Server → Database
-         ↓
-    Background Workers
-```
-
-**Core Components:**
-- **[Component 1]**: [Purpose, location]
-- **[Component 2]**: [Purpose, location]
-- **[Component 3]**: [Purpose, location]
-
----
-
-## Context Documentation Structure
-
-This project uses **fractal documentation** - information organized by attention level:
-
-### Systems (`systems/`)
-Hardware, deployment, infrastructure - changes slowly
-- `systems/production.md` - Production environment
-- `systems/development.md` - Dev environment
-- Add more as needed
-
-### Modules (`modules/`)
-Core code systems - changes frequently
-- `modules/api.md` - API layer documentation
-- `modules/database.md` - Data layer
-- `modules/auth.md` - Authentication
-- Add per major module
-
-### Integrations (`integrations/`)
-Cross-system communication
-- `integrations/external-api.md` - Third-party API
-- `integrations/websocket.md` - Real-time communication
-- Add per integration point
-
----
-
-## Getting Started (for Claude)
-
-**When you start a session:**
-1. Check `systems/` for deployment context
-2. Check `modules/` for code you're working on
-3. Use `integrations/` if touching external systems
-
-**The context router will automatically:**
-- Keep recently mentioned files HOT (full content)
-- Keep related files WARM (headers only)
-- Evict unmentioned files as COLD
-
----
-
-## Development Workflow
-
-**Daily:**
-```bash
-# [Your typical commands]
-git pull
-[run tests]
-[start dev server]
-```
-
-**Deploy:**
-```bash
-# [Your deploy process]
-[build command]
-[deploy command]
-```
-
----
-
-## Common Operations
-
-**Run tests:**
-```bash
-[test command]
-```
-
-**Check logs:**
-```bash
-[log command]
-```
-
-**Health check:**
-```bash
-[health check command]
-```
-
----
-
-## Critical Files
-
-| File | Purpose | Line |
-|------|---------|------|
-| `[critical_file_1.py]` | [Purpose] | [Key line numbers] |
-| `[critical_file_2.py]` | [Purpose] | [Key line numbers] |
-
----
-
-## Environment Variables
+## Commands
 
 ```bash
-# Required
-export [VAR_NAME]=[value]
+# Wear OS app
+cd wear_app && flutter pub get && flutter run -d <device>
 
-# Optional
-export [VAR_NAME]=[value]
+# iOS app
+cd ios_app && xcodegen generate && pod install && open WearLink.xcworkspace
+
+# Test (Flutter)
+cd wear_app && flutter test
+
+# Test (iOS)
+cd ios_app && xcodebuild test -workspace WearLink.xcworkspace -scheme WearLink -destination 'platform=iOS Simulator,name=iPhone 16'
+
+# Proto regenerate
+protoc --dart_out=wear_app/lib/gen -Iprotocol/proto protocol/proto/*.proto
+
+# Graphify
+graphify update .
+graphify query "<question>"
 ```
 
----
+## Architecture
 
-## Dependencies on External Services
+iOS = BLE Central, Watch = BLE Peripheral (GATT server). Protobuf wire format over custom packet codec (CRC-8, chunked reassembly). Health data flows watch→iPhone→HealthKit. Call/notification/music control flows bidirectionally.
 
-| Service | Purpose | Failure Impact | Health Check |
-|---------|---------|----------------|--------------|
-| [Service 1] | [Purpose] | [Impact] | `curl [health_url]` |
-| [Service 2] | [Purpose] | [Impact] | `ping [host]` |
+## Key Decisions
 
----
+- **Mixed stack**: native Swift/SwiftUI for iOS (CoreBluetooth, HealthKit), Flutter for Wear OS (signals_dart state, Kotlin platform channels). Rationale: each platform's native APIs are irreplaceable; Flutter gives faster Wear UI iteration.
+- **No SwiftProtobuf**: hand-written ProtoCodec avoids CocoaPods dependency for protobuf — Podfile is empty.
+- **Foreground Service (Phase 17)**: Android FGS keeps BLE advertiser alive when watch screen dims; bonding (Phase 18) enables reconnect without re-pairing.
 
-## Recent Changes
+## Domain Knowledge
 
-[Keep a running log of major changes for context continuity]
+- **FE10/FE20/FE21...**: GATT characteristic UUIDs (prefix encodes feature: FE10=deviceInfo, FE20=healthStream, FE21=healthControl, FE30=callEvent, FE31=callAction, FE40=notification, FE41=notificationAction, FE50=musicNowPlaying, FE51=musicCommand, FE60=linkControl)
+- **PacketCodec**: custom framing (header + payload + CRC-8 SMBUS), supports multi-frame reassembly for payloads > MTU
+- **CallKit limit**: iOS CXCallObserver can't provide caller name/number to 3rd-party apps — "Unknown" on watch is a hard platform limit
 
-**[Date]:**
-- [Change description]
-- [Affects: which systems]
-- [Why: reasoning]
+## Don'ts
 
----
-
-## For New Developers
-
-**This file helps Claude Code:**
-1. Understand your project structure
-2. Avoid hallucinating non-existent integrations
-3. Maintain context across long sessions
-4. Coordinate across multiple concurrent instances
-
-**Customize this template:**
-1. Replace all `[placeholders]` with your actual info
-2. Add sections specific to your project
-3. Keep it updated as architecture evolves
-4. Use `systems/*.md` for detailed hardware/deployment docs
-5. Use `modules/*.md` for detailed code documentation
-
----
-
-## Multi-Instance Coordination
-
-If you're running multiple Claude Code instances on this project:
-
-1. **Set instance ID:**
-   ```bash
-   export CLAUDE_INSTANCE=A  # Or B, C, D, etc.
-   ```
-
-2. **Signal when completing work:**
-   ```pool
-   INSTANCE: A
-   ACTION: completed
-   TOPIC: [Brief description]
-   SUMMARY: [What changed]
-   AFFECTS: [Files/systems touched]
-   BLOCKS: [What this unblocks]
-   ```
-
-3. **Other instances will see your updates** at their next session start
-
----
-
-**Last Updated:** [Date]
-**Maintained By:** [Your name/team]
+- Don't modify generated protobuf files (`wear_app/lib/gen/*.pb*`)
+- Don't modify graphify-out/ directly — use `graphify update .`

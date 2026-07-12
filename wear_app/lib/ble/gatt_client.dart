@@ -52,6 +52,14 @@ class GattClient {
     channel.advertiseStart();
   }
 
+  /// Hard restart of the native BLE engine. Used by Quick Sync when the
+  /// foreground service did not auto-start or advertising stopped.
+  Future<void> restart() async {
+    await channel.stop();
+    await channel.start();
+    await channel.advertiseStart();
+  }
+
   Future<void> stop() async {
     channel.advertiseStop();
     channel.stop();

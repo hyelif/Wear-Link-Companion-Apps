@@ -72,7 +72,10 @@ Future<void> main() async {
     // BLE perms are the hard gate for the GATT server + advertiser. Await
     // before gatt.start() or the advertiser silently fails (onStartFailure)
     // and the watch stays invisible to the iPhone.
-    await bleChannel.requestPermissions();
+    final bleGranted = await bleChannel.requestPermissions();
+    if (!bleGranted) {
+      debugPrint('BLE runtime permissions denied — FGS cannot start. User must grant via Settings.');
+    }
 
     gatt.start(
       onFrame: (uuid, payload) {
@@ -337,8 +340,18 @@ class ConnectionScreen extends StatelessWidget {
               child: ActionChip(
                 label: const Text("Quick Sync", style: TextStyle(color: Colors.white)),
                 backgroundColor: Colors.teal,
-                onPressed: () {
-                  // TODO: Trigger immediate health flush
+                onPressed: () async {
+                  // Force-restart the native BLE foreground service + advertiser,
+                  // refresh the DeviceInfo payload, and push any buffered health
+                  // samples. This is the manual recovery path when the auto-start
+                  // path fails (e.g. permission denied at launch or FGS killed).
+                  try {
+                    await gatt.restart();
+                    await _refreshDeviceInfo();
+                    _flushHealth();
+                  } catch (e) {
+                    debugPrint('Quick Sync failed: $e');
+                  }
                 },
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               ),

@@ -1,10 +1,10 @@
 {
   "scores": {
     "systems/development.md": 1.0,
-    "systems/production.md": 0.14224175713617204,
-    "modules/your-feature.md": 0.0,
-    "integrations/external-api.md": 0.0
+    "systems/production.md": 0.05364640980555616,
+    "modules/your-feature.md": 0.17149999999999996,
+    "integrations/external-api.md": 0.6400000000000001
   },
-  "turn_count": 42,
-  "last_update": "2026-07-11T21:35:51.769240"
+  "turn_count": 48,
+  "last_update": "2026-07-12T15:56:50.883170"
 }
