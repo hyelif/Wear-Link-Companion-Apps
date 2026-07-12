@@ -1,49 +1,101 @@
 # WearLink
 
-Companion bridge: **iPhone** ⟷ **Wear OS watch** over BLE.
+**iPhone** ⟷ **Wear OS watch** — companion bridge over BLE.
 
-Replaces the abandoned OrienLabs BLE bridge. iOS = Central, Watch = Peripheral.
+Replaces the abandoned OrienLabs BLE bridge. iOS acts as BLE Central, Watch as BLE Peripheral (GATT server).
+
+## Features
+
+| Feature | Direction | Status |
+|---------|-----------|--------|
+| Health data sync (HR, steps → HealthKit) | Watch → iPhone | ✅ |
+| Call handling on watch (remote control) | Bidirectional | ✅ |
+| Notification forwarding | iPhone → Watch | ✅ |
+| Music control on watch | Bidirectional | ✅ |
+
+> See [platform limitations](#platform-limitations) for honest capability boundaries.
 
 ## Monorepo layout
 
 | Path | What |
 |------|------|
-| `wear_app/` | Wear OS app — Flutter UI + `signals` state + native Kotlin platform channels (BLE peripheral, Health Services) |
-| `ios_app/` | iOS app — native Swift/SwiftUI, CocoaPods, CoreBluetooth (central) |
-| `protocol/` | Shared BLE GATT contract + protobuf definitions (single source of truth for both apps) |
-| `Software-Structure.md` | Architecture spec |
-| `progress.md` | Status tracker / roadmap / metrics |
+| `wear_app/` | Wear OS app — Flutter UI + `signals` state + Kotlin platform channels (BLE peripheral, Health Services) |
+| `ios_app/` | iOS app — native Swift/SwiftUI, CoreBluetooth (central), HealthKit |
+| `protocol/` | Shared BLE GATT contract + protobuf definitions — single source of truth for both apps |
 
-## Features
+## Prerequisites
 
-- Health data sync (watch → iPhone → HealthKit)
-- Call handling on watch (remote control — no audio routing, platform-blocked)
-- Notification forwarding (plumbing; 3rd-party cross-app forwarding blocked by iOS sandbox)
-- Music control on watch (own-app audio; system media blocked via public API)
+- **Wear OS**: Flutter SDK (≥3.22), Android device/emulator with Wear OS
+- **iOS**: macOS, Xcode 16+, XcodeGen, CocoaPods
+- **Proto**: protoc + dart plugin (for regenerating wire types)
 
-See `Software-Structure.md` §9 for the honest platform-limitations register.
-
-## Build
+## Build & run
 
 ### Wear OS app
+
 ```bash
 cd wear_app
 flutter pub get
-# regenerate proto dart:
-#   protoc --dart_out=lib/gen -I../protocol/proto ../protocol/proto/*.proto
 flutter run -d <wear-os-emulator-or-device>
 ```
 
+Regenerate protobuf Dart code after changing `protocol/`:
+
+```bash
+protoc --dart_out=lib/gen -I../protocol/proto ../protocol/proto/*.proto
+```
+
 ### iOS app
+
 ```bash
 cd ios_app
-# requires XcodeGen: brew install xcodegen
-xcodegen generate        # produces WearLink.xcodeproj
-pod install              # CocoaPods
+brew install xcodegen          # if not installed
+xcodegen generate               # produces WearLink.xcodeproj
+pod install                     # CocoaPods
 open WearLink.xcworkspace
 ```
 
+### Run tests
+
+```bash
+# Flutter
+cd wear_app && flutter test
+
+# iOS
+cd ios_app && xcodebuild test \
+  -workspace WearLink.xcworkspace \
+  -scheme WearLink \
+  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  | xcpretty
+```
+
+## Architecture
+
+```
+┌──────────────┐       BLE GATT        ┌──────────────────┐
+│   iPhone      │ ◄──────────────────► │   Wear OS Watch   │
+│  (Central)    │   (peripheral)       │  (Peripheral)     │
+│               │                      │                   │
+│ CoreBluetooth │                      │ Flutter UI        │
+│ HealthKit     │                      │ signals_dart      │
+│ SwiftUI       │                      │ Kotlin channels   │
+└──────────────┘                      └──────────────────┘
+```
+
+Wire format: protobuf over custom packet codec (CRC-8 SMBUS, multi-frame reassembly for payloads > MTU).
+
+## Platform limitations
+
+These are hard platform limits, not bugs:
+
+- **Caller ID**: iOS CXCallObserver can't provide caller name/number to 3rd-party apps — watch always shows "Unknown"
+- **Notification content**: iOS sandbox blocks 3rd-party apps from reading other apps' notifications; forwarding works for own-app notifications only
+- **System media**: iOS MediaPlayer API doesn't expose system media playback to 3rd-party apps; music control works for own-app audio only
+
 ## Status
 
-Not started — architecture defined. See `progress.md`.# wear_link
-# Wear-Link-Companion-Apps
+Active development. See `progress.md` for roadmap and metrics.
+
+## License
+
+MIT
