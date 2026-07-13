@@ -63,6 +63,13 @@ class BlePeripheralChannel {
   Future<bool> requestPermissions() async =>
       (await _m.invokeMethod('requestPermissions')) as bool;
 
+  /// Request exemption from battery optimization so the system does not kill
+  /// the FGS when the app goes to background. Opens the system Settings page
+  /// for the user to toggle "Don't optimize" on. Returns true if already
+  /// exempted, false if the user needs to grant it manually.
+  Future<bool> requestBatteryExemption() async =>
+      (await _m.invokeMethod('requestBatteryExemption')) as bool;
+
   Future<bool> notify(String uuid, Uint8List frame) async =>
       (await _m.invokeMethod('notify', {'uuid': uuid, 'data': frame})) as bool;
 

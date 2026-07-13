@@ -1,5 +1,6 @@
 import Foundation
 import CoreBluetooth
+import UIKit
 import os
 
 /// In-app BLE log entry (mirrored to os_log + shown in BLELogView so the
@@ -15,14 +16,16 @@ enum BLELogLevel: String, Hashable {
     case info, warning, error
 }
 
-/// Central-side BLE manager. Scans for the WearLink watch, connects, bonds,
-/// and exposes the discovered `GattClient`.
+/// Bridge-model BLE manager. The iPhone acts as a GATT **server**
+/// (`CBPeripheralManager`) instead of a GATT client. The watch scans, connects,
+/// and subscribes; the iPhone publishes the WearLink service, answers reads,
+/// ingests writes, and pushes notifications to subscribed centrals.
 ///
-/// Battery: duty-cycled scan (2 s on / 8 s off) when disconnected;
-/// stops scanning immediately on connect. See Software-Structure §4/§6.
+/// Battery: advertising is duty-cycled when no central is subscribed; the
+/// foreground service on the watch keeps the link alive. See GATT.md.
 @MainActor
 @Observable
-final class BLEManager: NSObject, CBCentralManagerDelegate {
+final class BLEManager: NSObject, CBPeripheralManagerDelegate {
     /// os_log logger so connection milestones are visible in Console.app /
     /// `log` CLI even for SideStore-installed builds (where `print()` output is
     /// not attached to a debugger). Filter Console by subsystem "com.wearlink".
@@ -49,6 +52,9 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
 
     func clearLogs() { logEntries.removeAll() }
 
+    /// Connection state. Reused for view compatibility: `.scanning` now means
+    /// "advertising" (publishing + waiting for a central), `.connected` means a
+    /// central is subscribed to at least one characteristic.
     enum State: Equatable {
         case poweredOff, scanning, connecting, connected, disconnected(Error?)
 
@@ -69,10 +75,9 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     }
 
     private(set) var state: State = .poweredOff
-    private(set) var gatt: GattClient?
 
-    /// Feature controllers that receive inbound data from the watch.
-    /// Set by AppContainer after all controllers are initialized.
+    /// Feature controllers that receive inbound data from the watch (now
+    /// delivered as GATT write requests). Set by AppContainer after init.
     weak var callController: CallController?
     weak var notificationForwarder: NotificationForwarder?
     weak var musicController: MusicController?
@@ -80,324 +85,474 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
     /// Set by AppContainer so BLEManager can update the device model on incoming data.
     weak var appContainer: AppContainer?
 
-    private let central: CBCentralManager
-    nonisolated(unsafe) private var scanTimer: Timer?
-    nonisolated(unsafe) private var restTimer: Timer?
-    nonisolated(unsafe) private var heartbeatTimer: Timer?
-    private let scanOn: TimeInterval = 2.0
-    private let scanOff: TimeInterval = 8.0
-    private let scanOffMax: TimeInterval = 120.0
-    private var scanFailureCount: Int = 0
+    /// The GATT server. Created in init; publishes the WearLink service once
+    /// Bluetooth is powered on.
+    private let peripheral: CBPeripheralManager
+
+    /// The published WearLink service and its mutable characteristics keyed by UUID.
+    private var service: CBMutableService?
+    private var characteristics: [CBUUID: CBMutableCharacteristic] = [:]
+
+    /// Centrals currently subscribed per characteristic. Used to target
+    /// `updateValue` notifications and to drive the `.connected` state.
+    private var subscribedCentrals: [CBUUID: Set<CBCentral>] = [:]
+
+    /// Monotonic seq for iPhone-originated framed packets (per-direction counter).
+    private var outSeq: UInt16 = 0
+
+    /// Per-characteristic chunk reassemblers for inbound writes (watch→phone).
+    private var reassemblers: [CBUUID: Reassembler] = [:]
+
+    /// Cached DeviceInfo returned on FE10 reads. Describes the iPhone.
+    private var cachedDeviceInfo: DeviceInfo = DeviceInfo(
+        model: UIDevice.current.model,
+        firmware: UIDevice.current.systemVersion,
+        batteryPercent: 0,
+        preferredMtu: 247
+    )
+
+    private nonisolated(unsafe) var heartbeatTimer: Timer?
     private let heartbeatInterval: TimeInterval = 30.0
-    /// Monotonic seq for iOS-originated heartbeats; echoed by the watch in its ACK.
+    /// Monotonic seq for iPhone-originated heartbeats; echoed by the watch in its ACK.
     private var heartbeatSeq: UInt32 = 0
 
-    /// UUID of the watch we last connected to. Persisted so that after the user
-    /// pairs the devices in native Bluetooth Settings, opening the app can reconnect
-    /// directly via retrievePeripherals(withIdentifiers:) without a noisy scan.
-    private let knownPeripheralUUIDKey = "com.wearlink.knownPeripheralUUID"
-    private var knownPeripheralUUID: UUID? {
-        get {
-            guard let uuidString = UserDefaults.standard.string(forKey: knownPeripheralUUIDKey) else { return nil }
-            return UUID(uuidString: uuidString)
-        }
-        set {
-            UserDefaults.standard.set(newValue?.uuidString, forKey: knownPeripheralUUIDKey)
-        }
+    /// Last N action nonces per source to drop replays (CallAction, NotifAction,
+    /// MusicCommand). Keyed by a coarse source tag; bounded to avoid unbounded growth.
+    private var seenNonces: [NonceKey: Set<UInt32>] = [:]
+    private let maxSeenNoncesPerKey = 32
+    private struct NonceKey: Hashable {
+        let uuid: CBUUID
+        let callId: String
+        let notifId: String
     }
 
+    /// Backward-compatible façade so existing feature controllers that call
+    /// `ble.gatt?.write(payload, to: uuid)` keep compiling. In the bridge model
+    /// "writing" a characteristic means pushing a framed notification to any
+    /// subscribed centrals. The `onPayload` dictionary is preserved so
+    /// HealthManager.registerHandler stays valid; it is invoked for inbound
+    /// writes on matching characteristics when present.
+    private(set) var gatt: GattNotifier?
+
     override init() {
-        // `options` let CoreBluetooth restore state across relaunches.
-        self.central = CBCentralManager(delegate: nil, queue: .main,
-            options: [CBCentralManagerOptionShowPowerAlertKey: false])
+        // `options` let CoreBluetooth restore state across relaunches. We pass
+        // the ShowPowerAlertKey=false to avoid the system alert when Bluetooth
+        // is off on launch; the app's UI already communicates the state.
+        self.peripheral = CBPeripheralManager(delegate: nil, queue: .main,
+            options: [CBPeripheralManagerOptionShowPowerAlertKey: false])
         super.init()
-        central.delegate = self
-        log(.info, "BLEManager init — waiting for CBCentralManager state (Bluetooth permission prompt may appear)")
+        peripheral.delegate = self
+        // The notifier façade is always present so controllers can attach
+        // handlers and call write() before any central connects (no-ops until a
+        // subscriber is attached, mirroring the old gatt==nil guard behavior).
+        self.gatt = GattNotifier(owner: self)
+        // Register inbound handlers for the action characteristics that no
+        // feature controller self-registers. CallController and
+        // NotificationForwarder relied on BLEManager.didConnect() to install
+        // their handlers in the central model; in bridge mode we install them
+        // on the façade here (the weak controller refs are populated by
+        // AppContainer immediately after this init returns, so by the time a
+        // write arrives they are set). MusicController and HealthManager
+        // self-register on .bleDidReconnect, so we do not register those here.
+        registerInboundHandlers()
+        log(.info, "BLEManager init — waiting for CBPeripheralManager state (Bridge mode: iPhone is GATT server)")
     }
 
     deinit {
-        scanTimer?.invalidate()
-        restTimer?.invalidate()
         heartbeatTimer?.invalidate()
     }
 
+    /// Install inbound handlers on the gatt façade for the action channels
+    /// that feature controllers do not self-register. Each closure hops to the
+    /// main actor because GattNotifier.onPayload is non-isolated and the
+    /// feature controllers are @MainActor-isolated.
+    private func registerInboundHandlers() {
+        guard let g = gatt else { return }
+        g.onPayload[WearLinkUUID.callAction] = { [weak self] data in
+            Task { @MainActor in
+                guard let self, let action = ProtoCodec.decodeCallAction(from: data) else { return }
+                self.callController?.applyAction(action)
+            }
+        }
+        g.onPayload[WearLinkUUID.notificationAction] = { [weak self] data in
+            Task { @MainActor in
+                guard let self, let action = ProtoCodec.decodeNotifAction(from: data) else { return }
+                self.notificationForwarder?.handleAction(action)
+            }
+        }
+    }
+
+    // MARK: - Public API (back-compat with central-mode call sites)
+
+    /// Begin advertising the WearLink service. Kept under the historical name
+    /// `startScanning` so AppContainer.start() and BLELogView's "Rescan now"
+    /// button keep working without view changes.
     func startScanning() {
-        guard central.state == .poweredOn else {
-            log(.warning, "startScanning called but central.state=\(cbStateName(central.state)) — not poweredOn (Bluetooth off or permission denied?)")
+        guard peripheral.state == .poweredOn else {
+            log(.warning, "startScanning called but peripheral.state is not poweredOn (Bluetooth off or permission denied?)")
             return
         }
-        // Native Bluetooth Settings pairing is the foundation: first try to use a
-        // peripheral that iOS already knows (system-connected via Settings, or
-        // previously connected and persisted). Only scan if nothing is retrievable.
-        if connectKnownPeripherals() { return }
-        beginScanCycle()
-    }
-
-    /// Attempt to connect without scanning. Returns true if a known/connected
-    /// peripheral was found and a connection attempt is in progress.
-    private func connectKnownPeripherals() -> Bool {
-        // 1. Peripherals currently connected to the system via native Settings or other apps.
-        let connected = central.retrieveConnectedPeripherals(withServices: [WearLinkUUID.service])
-        if let p = connected.first {
-            log(.info, "Native Settings path: found already-connected watch \(p.identifier) — connecting directly")
-            connectToPeripheral(p)
-            return true
+        if service == nil {
+            buildAndPublishService()
+        } else if !peripheral.isAdvertising {
+            startAdvertising()
         }
+    }
 
-        // 2. Previously connected watch that iOS remembers from a prior session.
-        if let uuid = knownPeripheralUUID {
-            let known = central.retrievePeripherals(withIdentifiers: [uuid])
-            if let p = known.first {
-                log(.info, "Native Settings path: found previously-connected watch \(p.identifier) — connecting directly")
-                connectToPeripheral(p)
-                return true
-            }
-            log(.info, "Known watch UUID \(uuid) is not retrievable; will scan instead")
+    /// Stop advertising and tear down the link. Kept under the historical name
+    /// `disconnect` so AppContainer.disconnectDevice() keeps working.
+    func disconnect() {
+        peripheral.stopAdvertising()
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = nil
+        for uuid in characteristics.keys { reassemblers[uuid]?.clear() }
+        subscribedCentrals.removeAll()
+        healthManager?.clear()
+        state = .disconnected(nil as Error?)
+        log(.info, "Stopped advertising and cleared subscriptions")
+    }
+
+    // MARK: - Service / advertising
+
+    /// Build the WearLink service with all 11 characteristics (FE10–FE60) and
+    /// publish it on the peripheral manager.
+    private func buildAndPublishService() {
+        let svc = CBMutableService(type: WearLinkUUID.service, primary: true)
+
+        // Property + permission mapping per GATT.md direction convention.
+        // Read  = iPhone responds to reads from the watch.
+        // Write = iPhone ingests writes from the watch.
+        // Notify = iPhone pushes to subscribed centrals (watch subscribes).
+        let deviceInfoChar = CBMutableCharacteristic(
+            type: WearLinkUUID.deviceInfo,
+            properties: [.read],
+            value: nil,
+            permissions: [.readable])
+
+        let healthStreamChar = CBMutableCharacteristic(
+            type: WearLinkUUID.healthStream,
+            properties: [.notify, .indicatable],
+            value: nil,
+            permissions: [.readable])
+
+        let healthControlChar = CBMutableCharacteristic(
+            type: WearLinkUUID.healthControl,
+            properties: [.write, .writeWithoutResponse],
+            value: nil,
+            permissions: [.writeable])
+
+        let callEventChar = CBMutableCharacteristic(
+            type: WearLinkUUID.callEvent,
+            properties: [.notify, .indicatable],
+            value: nil,
+            permissions: [.readable])
+
+        let callActionChar = CBMutableCharacteristic(
+            type: WearLinkUUID.callAction,
+            properties: [.write, .writeWithoutResponse],
+            value: nil,
+            permissions: [.writeable])
+
+        let notificationChar = CBMutableCharacteristic(
+            type: WearLinkUUID.notification,
+            properties: [.notify, .indicatable],
+            value: nil,
+            permissions: [.readable])
+
+        let notificationActionChar = CBMutableCharacteristic(
+            type: WearLinkUUID.notificationAction,
+            properties: [.write, .writeWithoutResponse],
+            value: nil,
+            permissions: [.writeable])
+
+        let musicNowPlayingChar = CBMutableCharacteristic(
+            type: WearLinkUUID.musicNowPlaying,
+            properties: [.notify, .indicatable],
+            value: nil,
+            permissions: [.readable])
+
+        let musicCommandChar = CBMutableCharacteristic(
+            type: WearLinkUUID.musicCommand,
+            properties: [.write, .writeWithoutResponse],
+            value: nil,
+            permissions: [.writeable])
+
+        let linkControlChar = CBMutableCharacteristic(
+            type: WearLinkUUID.linkControl,
+            properties: [.notify, .indicatable, .write, .writeWithoutResponse],
+            value: nil,
+            permissions: [.readable, .writeable])
+
+        svc.characteristics = [
+            deviceInfoChar, healthStreamChar, healthControlChar,
+            callEventChar, callActionChar, notificationChar,
+            notificationActionChar, musicNowPlayingChar, musicCommandChar,
+            linkControlChar,
+        ]
+        for c in svc.characteristics ?? [] {
+            characteristics[c.uuid] = c
+            reassemblers[c.uuid] = Reassembler()
         }
-        return false
+        self.service = svc
+        peripheral.add(svc)
+        log(.info, "Publishing WearLink service (\(WearLinkUUID.service.uuidString)) with \(characteristics.count) characteristics")
     }
 
-    private func connectToPeripheral(_ peripheral: CBPeripheral) {
-        central.stopScan()
-        invalidateScanTimers()
-        scanFailureCount = 0
-        state = .connecting
-        central.connect(peripheral, options: nil)
-    }
-
-    private func invalidateScanTimers() {
-        scanTimer?.invalidate(); scanTimer = nil
-        restTimer?.invalidate(); restTimer = nil
-    }
-
-    private func beginScanCycle() {
-        scanTimer?.invalidate()
-        restTimer?.invalidate()
-        central.scanForPeripherals(withServices: [WearLinkUUID.service],
-                                   options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+    private func startAdvertising() {
+        peripheral.startAdvertising([
+            CBAdvertisementDataServiceUUIDsKey: [WearLinkUUID.service],
+            CBAdvertisementDataLocalNameKey: "WearLink",
+        ])
         state = .scanning
-        log(.info, "Scan: scanning for watch (service \(WearLinkUUID.service.uuidString), 2s on)…")
-        scanTimer = Timer.scheduledTimer(withTimeInterval: scanOn, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.central.stopScan()
-                // Exponential backoff: if no device found, progressively increase rest
-                // period up to scanOffMax (2 min) to save battery.
-                let rest = min(self.scanOff * pow(2.0, Double(self.scanFailureCount)), self.scanOffMax)
-                self.scanFailureCount += 1
-                self.log(.info, "Scan: no watch found — resting \(String(format: "%.1f", rest))s before retry (attempt \(self.scanFailureCount))")
-                self.restTimer = Timer.scheduledTimer(withTimeInterval: rest, repeats: false) { [weak self] _ in
-                    Task { @MainActor in
-                        self?.beginScanCycle()
-                    }
-                }
-            }
-        }
+        log(.info, "Advertising WearLink service as GATT server (waiting for watch to connect)")
     }
 
-    private func cbStateName(_ s: CBManagerState) -> String {
-        switch s {
-        case .unknown: return "unknown"
-        case .resetting: return "resetting"
-        case .unsupported: return "unsupported"
-        case .unauthorized: return "unauthorized"
-        case .poweredOff: return "poweredOff"
-        case .poweredOn: return "poweredOn"
-        @unknown default: return "other"
-        }
-    }
+    // MARK: - CBPeripheralManagerDelegate
 
-    nonisolated func centralManagerDidUpdateState(_ c: CBCentralManager) {
+    nonisolated func peripheralManagerDidUpdateState(_ p: CBPeripheralManager) {
         Task { @MainActor in
-            switch c.state {
+            switch p.state {
             case .poweredOn:
-                log(.info, "CBCentralManager poweredOn — try native Settings connection first, then scan")
+                log(.info, "CBPeripheralManager poweredOn — publishing GATT service and advertising")
+                refreshDeviceInfo()
                 startScanning()
             case .poweredOff:
-                log(.warning, "CBCentralManager poweredOff — Bluetooth is OFF on the iPhone")
+                log(.warning, "CBPeripheralManager poweredOff — Bluetooth is OFF on the iPhone")
                 state = .poweredOff
                 invalidateAll()
             case .unauthorized:
-                log(.error, "CBCentralManager unauthorized — Bluetooth permission NOT granted. Open Settings → WearLink → enable Bluetooth")
+                log(.error, "CBPeripheralManager unauthorized — Bluetooth permission NOT granted. Open Settings → WearLink → enable Bluetooth")
                 state = .poweredOff
                 invalidateAll()
             case .unsupported:
-                log(.error, "CBCentralManager unsupported on this device")
+                log(.error, "CBPeripheralManager unsupported on this device")
                 state = .poweredOff
                 invalidateAll()
             case .resetting:
-                log(.warning, "CBCentralManager resetting")
+                log(.warning, "CBPeripheralManager resetting")
                 state = .poweredOff
                 invalidateAll()
             case .unknown:
-                log(.info, "CBCentralManager state unknown")
+                log(.info, "CBPeripheralManager state unknown")
             @unknown default:
                 break
             }
         }
     }
 
-    private func invalidateAll() {
-        scanTimer?.invalidate(); scanTimer = nil
-        restTimer?.invalidate(); restTimer = nil
-        heartbeatTimer?.invalidate(); heartbeatTimer = nil
-        gatt = nil
-        scanFailureCount = 0
-        state = .poweredOff
-    }
-
-    nonisolated func centralManager(_ central: CBCentralManager,
-                        didDiscover peripheral: CBPeripheral,
-                        advertisementData: [String: Any], rssi RSSI: NSNumber) {
+    nonisolated func peripheralManager(_ p: CBPeripheralManager,
+                                      didAdd service: CBService, error: Error?) {
         Task { @MainActor in
-            log(.info, "Discovered WearLink watch (RSSI=\(RSSI.intValue)) — connecting")
-            connectToPeripheral(peripheral)
+            if let error {
+                log(.error, "Failed to add GATT service: \(error.localizedDescription)")
+                return
+            }
+            log(.info, "GATT service added — starting advertising")
+            startAdvertising()
         }
     }
 
-    nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+    nonisolated func peripheralManagerDidStartAdvertising(_ p: CBPeripheralManager, error: Error?) {
         Task { @MainActor in
-            // Remember this watch so future launches can reconnect directly via
-            // native Settings / retrievePeripherals without a noisy scan.
-            knownPeripheralUUID = peripheral.identifier
-            log(.info, "Connected to watch \(peripheral.identifier) — discovering GATT services")
-            let client = GattClient(peripheral: peripheral)
-            // Feed GattClient discovery/error logs into the in-app buffer.
-            client.onLog = { [weak self] text in
-                self?.log(.info, text)
+            if let error {
+                log(.error, "Failed to start advertising: \(error.localizedDescription)")
+                return
             }
-            // LinkControl (FE60) keepalive handshake. The watch may originate
-            // heartbeats; we ACK those with a matching seq. We also originate
-            // heartbeats (startHeartbeat); inbound ACKs/NACKs for those are proof of
-            // liveness and are NOT re-ACKed (prevents an ack-pingpong loop). FE60 is
-            // not chunked, so frame.payload is the full LinkControl protobuf.
-            client.onLinkControl = { [weak self] frame in
-                Task { @MainActor in
-                    guard let self else { return }
-                    guard let lc = ProtoCodec.decodeLinkControl(from: frame.payload) else { return }
-                    switch lc.kind {
-                    case .heartbeat:
-                        let ack = LinkControl(kind: .ack, seq: lc.seq,
-                            timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
-                            payload: Data())
-                        self.gatt?.write(ProtoCodec.encodeLinkControl(ack),
-                                         to: WearLinkUUID.linkControl)
-                    case .ack, .nack, .kindUnspecified, .reconnectToken:
-                        break
-                    }
-                }
+            log(.info, "Advertising started — watch can now discover and connect")
+        }
+    }
+
+    // MARK: - Subscribe / unsubscribe
+
+    nonisolated func peripheralManager(_ p: CBPeripheralManager,
+                                       central: CBCentral,
+                                       didSubscribeTo characteristic: CBCharacteristic) {
+        Task { @MainActor in
+            subscribedCentrals[characteristic.uuid, default: []].insert(central)
+            updateConnectionState()
+            log(.info, "Central \(central.identifier) subscribed to \(characteristic.uuid.uuidString)")
+            if characteristic.uuid == WearLinkUUID.linkControl {
+                startHeartbeat()
             }
-            // Register inbound payload handlers for feature characteristics
-            // that the watch writes to (callAction, notificationAction, musicCommand).
-            // Each handler hops to the main actor: BLEManager is @MainActor, so its
-            // callController/notificationForwarder/musicController and gatt/state are
-            // main-actor-isolated and cannot be touched from the peripheral-delegate
-            // (nonisolated) closure directly.
-            client.onPayload[WearLinkUUID.callAction] = { [weak self] data in
-                Task { @MainActor in
-                    guard let self, let action = ProtoCodec.decodeCallAction(from: data) else { return }
-                    self.callController?.applyAction(action)
-                }
-            }
-            client.onPayload[WearLinkUUID.notificationAction] = { [weak self] data in
-                Task { @MainActor in
-                    guard let self, let action = ProtoCodec.decodeNotifAction(from: data) else { return }
-                    self.notificationForwarder?.handleAction(action)
-                }
-            }
-            client.onPayload[WearLinkUUID.musicCommand] = { [weak self] data in
-                Task { @MainActor in
-                    guard let self, let command = ProtoCodec.decodeMusicCommand(from: data) else { return }
-                    self.musicController?.dispatchCommand(command)
-                }
-            }
-            client.onPayload[WearLinkUUID.healthStream] = { [weak self] data in
-                Task { @MainActor in
-                    guard let self, let frame = ProtoCodec.decodeHealthFrame(from: data) else { return }
-                    self.healthManager?.ingest(frame)
-                }
-            }
-            self.gatt = client
-            self.state = .connected
-            peripheral.delegate = client
-            client.discoverServices()
-            log(.info, "GATT connected — state=.connected, discovering services")
-            self.startHeartbeat()
-            // Register device info handler — decode FE10 notify payload into WearableDevice.
-            client.onPayload[WearLinkUUID.deviceInfo] = { [weak self] data in
-                Task { @MainActor in
-                    guard let self, let info = ProtoCodec.decodeDeviceInfo(from: data) else { return }
-                    // Map BLE DeviceInfo proto to the WearableDevice model.
-                    let device = WearableDevice(
-                        id: "watch-001",
-                        name: info.model,
-                        model: info.model,
-                        androidVersion: info.firmware,
-                        appVersion: "1.0.0",
-                        batteryLevel: Int(info.batteryPercent),
-                        isCharging: false,
-                        isConnected: true,
-                        lastSeen: Date()
-                    )
-                    // Update the AppContainer's device — this triggers @Observable view refresh.
-                    self.appContainer?.device = device
-                    self.log(.info, "DeviceInfo received: model=\(info.model) fw=\(info.firmware) battery=\(info.batteryPercent)%")
-                }
-            }
-            // Notify feature controllers that a new BLE connection is established.
             NotificationCenter.default.post(name: .bleDidReconnect, object: nil)
-            // Once characteristics are discovered, configure the watch's health
-            // capture (FE21 HealthControl): push interval + the types we want.
-            client.onDiscovered = { [weak self] in
-                Task { @MainActor in
-                    self?.sendHealthControlConfig()
-                }
+        }
+    }
+
+    nonisolated func peripheralManager(_ p: CBPeripheralManager,
+                                       central: CBCentral,
+                                       didUnsubscribeFrom characteristic: CBCharacteristic) {
+        Task { @MainActor in
+            subscribedCentrals[characteristic.uuid]?.remove(central)
+            if subscribedCentrals[characteristic.uuid]?.isEmpty == true {
+                subscribedCentrals.removeValue(forKey: characteristic.uuid)
+            }
+            updateConnectionState()
+            log(.info, "Central \(central.identifier) unsubscribed from \(characteristic.uuid.uuidString)")
+        }
+    }
+
+    private func updateConnectionState() {
+        let any = subscribedCentrals.values.contains { !$0.isEmpty }
+        if any {
+            if state != .connected {
+                state = .connected
+            }
+        } else {
+            // No subscribers: back to advertising/waiting.
+            if state == .connected {
+                state = .scanning
+                heartbeatTimer?.invalidate()
+                heartbeatTimer = nil
             }
         }
     }
 
-    /// Disconnect from the current peripheral.
-    func disconnect() {
-        guard let p = gatt?.peripheral else { return }
-        p.delegate = nil
-        central.cancelPeripheralConnection(p)
-        self.gatt = nil
-        state = .disconnected(nil as Error?)
-    }
+    // MARK: - Read requests
 
-    nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+    nonisolated func peripheralManager(_ p: CBPeripheralManager,
+                                       didReceiveRead request: CBATTRequest) {
         Task { @MainActor in
-            log(.error, "Failed to connect to watch: \(error?.localizedDescription ?? "unknown")")
-            state = .disconnected(error)
-            // Reconnect via the native-Settings-known peripheral first (the watch
-            // may still be retrievable by its stored UUID), then fall back to scan.
-            startScanning()
+            let uuid = request.characteristic.uuid
+            switch uuid {
+            case WearLinkUUID.deviceInfo:
+                let bytes = ProtoCodec.encodeDeviceInfo(cachedDeviceInfo)
+                // Truncate to the central's MTU if smaller than the payload.
+                let mtu = request.central.maximumUpdateValueLength
+                let data: Data
+                if bytes.count > mtu {
+                    data = bytes.prefix(mtu)
+                } else {
+                    data = bytes
+                }
+                // CBPeripheralManager reads are answered by setting request.value
+                // then calling respond; value must be set BEFORE respond.
+                request.value = data
+                p.respond(to: request, withResult: .success)
+            default:
+                log(.warning, "Read on unsupported characteristic \(uuid.uuidString)")
+                p.respond(to: request, withResult: .readNotPermitted)
+            }
         }
     }
 
-    nonisolated func centralManager(_ central: CBCentralManager,
-                        didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+    // MARK: - Write requests
+
+    nonisolated func peripheralManager(_ p: CBPeripheralManager,
+                                       didReceiveWriteRequests requests: [CBATTRequest]) {
         Task { @MainActor in
-            heartbeatTimer?.invalidate()
-            heartbeatTimer = nil
-            gatt = nil
-            healthManager?.clear()
-            state = .disconnected(error)
-            log(.warning, "Disconnected from watch: \(error?.localizedDescription ?? "clean") — reconnecting via known peripheral then scan")
-            // Reconnect via the stored/native-Settings peripheral first so a bonded
-            // watch is re-claimed without a noisy fresh scan; scan is the fallback.
-            startScanning()
+            for request in requests {
+                let uuid = request.characteristic.uuid
+                guard let value = request.value else {
+                    p.respond(to: request, withResult: .invalidAttributeValueLength)
+                    continue
+                }
+                // Decode the framed packet; LinkControl frames are dispatched
+                // directly, all others go through the per-UUID reassembler.
+                guard let frame = PacketCodec.decode(value) else {
+                    log(.warning, "Bad frame on \(uuid.uuidString) (CRC/len mismatch) — dropping")
+                    p.respond(to: request, withResult: .invalidAttributeValueLength)
+                    continue
+                }
+                if uuid == WearLinkUUID.linkControl {
+                    handleLinkControl(frame.payload)
+                    p.respond(to: request, withResult: .success)
+                    continue
+                }
+                let reassembler = reassemblers[uuid] ?? Reassembler()
+                reassemblers[uuid] = reassembler
+                if let full = reassembler.add(frame) {
+                    dispatchInbound(uuid: uuid, payload: full)
+                }
+                p.respond(to: request, withResult: .success)
+            }
         }
+    }
+
+    // MARK: - Inbound dispatch
+
+    private func dispatchInbound(uuid: CBUUID, payload: Data) {
+        // FE21 HealthControl is handled here (no feature controller self-
+        // registers for it); everything else is fed to the gatt façade's
+        // per-UUID onPayload handlers (set by BLEManager for callAction /
+        // notificationAction, and self-registered by MusicController and
+        // HealthManager for musicCommand / healthStream). The façade is the
+        // single dispatch path for those, avoiding double delivery.
+        switch uuid {
+        case WearLinkUUID.healthControl:
+            guard let cmd = ProtoCodec.decodeHealthControl(from: payload) else { return }
+            applyHealthControl(cmd)
+            return
+        case WearLinkUUID.callAction:
+            // Replay-check before delivery. Decode is cheap; the façade handler
+            // decodes again to apply the action.
+            if let a = ProtoCodec.decodeCallAction(from: payload),
+               isReplay(uuid: uuid, nonce: a.nonce, callId: a.callId, notifId: "") { return }
+            gatt?.onPayload[uuid]?(payload)
+            sendLinkControlAck(seq: 0)
+        case WearLinkUUID.notificationAction:
+            if let a = ProtoCodec.decodeNotifAction(from: payload),
+               isReplay(uuid: uuid, nonce: a.nonce, callId: "", notifId: a.notifId) { return }
+            gatt?.onPayload[uuid]?(payload)
+            sendLinkControlAck(seq: 0)
+        case WearLinkUUID.musicCommand:
+            if let c = ProtoCodec.decodeMusicCommand(from: payload),
+               isReplay(uuid: uuid, nonce: c.nonce, callId: "", notifId: "") { return }
+            gatt?.onPayload[uuid]?(payload)
+            sendLinkControlAck(seq: 0)
+        default:
+            gatt?.onPayload[uuid]?(payload)
+        }
+    }
+
+    private func applyHealthControl(_ cmd: HealthControl) {
+        // The watch now drives health capture config. Forward to HealthManager
+        // for future use; for now just log — the iPhone is the data sink.
+        switch cmd.command {
+        case .sendNow:
+            log(.info, "HealthControl: SEND_NOW received from watch")
+        case .setIntervalMs:
+            log(.info, "HealthControl: SET_INTERVAL_MS=\(cmd.intervalMs) received from watch")
+        case .setTypes:
+            let names = cmd.types.map { String(describing: $0) }.joined(separator: ",")
+            log(.info, "HealthControl: SET_TYPES=[\(names)] received from watch")
+        case .startActive:
+            log(.info, "HealthControl: START_ACTIVE received from watch")
+        case .stopActive:
+            log(.info, "HealthControl: STOP_ACTIVE received from watch")
+        case .cmdUnspecified:
+            break
+        }
+    }
+
+    // MARK: - LinkControl (heartbeat / ack)
+
+    private func handleLinkControl(_ payload: Data) {
+        guard let lc = ProtoCodec.decodeLinkControl(from: payload) else { return }
+        switch lc.kind {
+        case .heartbeat:
+            // Echo an ACK carrying the heartbeat's seq.
+            let ack = LinkControl(kind: .ack, seq: lc.seq,
+                timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
+                payload: Data())
+            sendNotification(WearLinkUUID.linkControl, payload: ProtoCodec.encodeLinkControl(ack))
+        case .ack, .nack, .kindUnspecified, .reconnectToken:
+            // Inbound ACK/NACK for our heartbeats — liveness proof only.
+            break
+        }
+    }
+
+    private func sendLinkControlAck(seq: UInt32) {
+        let ack = LinkControl(kind: .ack, seq: seq,
+            timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
+            payload: Data())
+        sendNotification(WearLinkUUID.linkControl, payload: ProtoCodec.encodeLinkControl(ack))
     }
 
     private func startHeartbeat() {
         heartbeatTimer?.invalidate()
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: heartbeatInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, let g = self.gatt else { return }
-                // Heartbeat = a real LinkControl{HEARTBEAT} protobuf (not 8 zero bytes),
-                // framed by GattClient.write. The watch decodes it and returns an ACK
-                // with the matching seq, which arrives via onLinkControl above.
+                guard let self else { return }
                 self.heartbeatSeq &+= 1
                 let lc = LinkControl(
                     kind: .heartbeat,
@@ -405,21 +560,108 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
                     timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
                     payload: Data()
                 )
-                g.write(ProtoCodec.encodeLinkControl(lc), to: WearLinkUUID.linkControl)
+                self.sendNotification(WearLinkUUID.linkControl, payload: ProtoCodec.encodeLinkControl(lc))
             }
         }
     }
 
-    /// Configure the watch's health broadcast via FE21 HealthControl: set the push
-    /// interval (ms) and the sample types we want forwarded. Sent after GATT
-    /// discovery completes (onDiscovered) so the FE21 characteristic is present.
-    private func sendHealthControlConfig() {
-        guard let g = gatt else { return }
-        log(.info, "GATT discovered — sending health config (FE21: interval=60s, types=HR+steps+cal+dist+sleep)")
-        let setInterval = HealthControl(command: .setIntervalMs, intervalMs: 60_000, types: [])
-        g.write(ProtoCodec.encodeHealthControl(setInterval), to: WearLinkUUID.healthControl)
-        let setTypes = HealthControl(command: .setTypes, intervalMs: 0,
-            types: [.heartRateBpm, .steps, .calories, .distanceMeters, .sleep])
-        g.write(ProtoCodec.encodeHealthControl(setTypes), to: WearLinkUUID.healthControl)
+    // MARK: - Replay protection
+
+    private func isReplay(uuid: CBUUID, nonce: UInt32, callId: String, notifId: String) -> Bool {
+        guard nonce != 0 else { return false } // 0 = no replay protection.
+        let key = NonceKey(uuid: uuid, callId: callId, notifId: notifId)
+        var set = seenNonces[key] ?? []
+        if set.contains(nonce) { return true }
+        set.insert(nonce)
+        if set.count > maxSeenNoncesPerKey { set.removeFirst() }
+        seenNonces[key] = set
+        return false
+    }
+
+    // MARK: - Outbound notifications
+
+    /// Push a framed notification to all centrals subscribed to `uuid`. The
+    /// payload is a protobuf message body; it is wrapped by `PacketCodec.encode`
+    /// and split into MTU-sized chunks (continuation flag set on all but last),
+    /// mirroring the old GattClient.write chunking so the watch's Reassembler
+    /// can reconstruct the full payload.
+    func sendNotification(_ uuid: CBUUID, payload: Data) {
+        guard let char = characteristics[uuid] else { return }
+        let centrals = Array(subscribedCentrals[uuid] ?? [])
+        guard !centrals.isEmpty else { return }
+
+        let overhead = PacketCodec.headerSize + PacketCodec.crcSize
+        // For notify characteristics the per-write MTU is bounded by the
+        // subscribed centrals' maximum update value length. Use a conservative
+        // 247 B default (GATT.md) and let CoreBluetooth fragment below it.
+        let defaultMtu = 247
+        let maxChunk = max(defaultMtu - overhead, 1)
+
+        let seq = outSeq
+        outSeq = (outSeq &+ 1) & 0xFFFF
+        var offset = 0
+        while offset < payload.count {
+            let end = min(offset + maxChunk, payload.count)
+            let chunk = payload.subdata(in: offset..<end)
+            let cont = end < payload.count
+            let frame = PacketCodec.encode(seq: seq, continuation: cont, payload: chunk)
+            let ok = peripheral.updateValue(frame, for: char, onSubscribedCentrals: centrals)
+            if !ok {
+                log(.warning, "Notification queue full on \(uuid.uuidString) — chunk dropped (watch will miss data)")
+                // Back off: let the queue drain before retrying remaining chunks.
+                break
+            }
+            offset = end
+        }
+    }
+
+    // MARK: - Teardown helpers
+
+    private func invalidateAll() {
+        heartbeatTimer?.invalidate(); heartbeatTimer = nil
+        peripheral.stopAdvertising()
+        for uuid in characteristics.keys { reassemblers[uuid]?.clear() }
+        subscribedCentrals.removeAll()
+        healthManager?.clear()
+        state = .poweredOff
+    }
+
+    /// Refresh cached DeviceInfo from the host iPhone (battery + OS version).
+    private func refreshDeviceInfo() {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        var battery: UInt32 = 0
+        switch UIDevice.current.batteryState {
+        case .unknown, .unplugged:
+            battery = UInt32(max(0, min(100, Int(UIDevice.current.batteryLevel * 100))))
+        default:
+            battery = UInt32(max(0, min(100, Int(UIDevice.current.batteryLevel * 100))))
+        }
+        cachedDeviceInfo = DeviceInfo(
+            model: UIDevice.current.model,
+            firmware: UIDevice.current.systemVersion,
+            batteryPercent: battery,
+            preferredMtu: 247
+        )
+    }
+}
+
+// MARK: - GattNotifier façade
+
+/// Thin façade preserving the `ble.gatt?.write(_:to:)` and `onPayload` surface
+/// that feature controllers depend on. In bridge mode `write` pushes a framed
+/// notification to subscribed centrals; `onPayload` is fed by inbound writes.
+final class GattNotifier {
+    private weak var owner: BLEManager?
+    /// Inbound payload handlers, keyed by characteristic UUID. Set by feature
+    /// controllers (e.g. HealthManager.registerHandler); invoked by BLEManager
+    /// when a full framed payload arrives on the matching characteristic.
+    var onPayload: [CBUUID: (Data) -> Void] = [:]
+
+    init(owner: BLEManager) { self.owner = owner }
+
+    /// Frame `payload` and notify all centrals subscribed to `uuid`. In bridge
+    /// mode this is how the iPhone pushes data to the watch.
+    func write(_ payload: Data, to uuid: CBUUID, type: CBCharacteristicWriteType = .withResponse) {
+        owner?.sendNotification(uuid, payload: payload)
     }
 }

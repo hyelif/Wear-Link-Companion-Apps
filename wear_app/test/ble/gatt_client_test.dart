@@ -48,6 +48,8 @@ class _FakeBleChannel implements BlePeripheralChannel {
   @override
   Future<bool> requestPermissions() async => true;
   @override
+  Future<bool> requestBatteryExemption() async => true;
+  @override
   Future<Map<dynamic, dynamic>> getDeviceInfo() async => {};
   @override
   Future<void> setDeviceInfo(Uint8List frame) async {}

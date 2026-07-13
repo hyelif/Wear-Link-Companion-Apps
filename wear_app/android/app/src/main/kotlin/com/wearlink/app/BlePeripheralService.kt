@@ -275,6 +275,7 @@ class BlePeripheralService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "onStartCommand: startId=$startId flags=$flags intent=${intent?.action ?: "null"} — service (re)started")
         // START_STICKY so the OS restarts the advertiser if the process is killed.
         return START_STICKY
     }
@@ -283,6 +284,10 @@ class BlePeripheralService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy: FGS stopping — advertiser/engine tearing down")
+        // Log a stack trace to identify WHO is killing the service. If the trace
+        // shows ActivityManagerService → the system is killing it (battery mgmt).
+        // If it shows our own code → stopService() was called from the plugin.
+        Log.i(TAG, "onDestroy: caller stack trace:\n${android.util.Log.getStackTraceString(Throwable())}")
         // Cancel any pending handler work (notably the 300ms delayed re-advertise
         // scheduled on disconnect) BEFORE tearing the engine down. Without this,
         // a 'stop' arriving within 300ms of a disconnect lets startAdvertising()
@@ -310,7 +315,7 @@ class BlePeripheralService : Service() {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
                     "WearLink BLE",
-                    NotificationManager.IMPORTANCE_LOW
+                    NotificationManager.IMPORTANCE_DEFAULT
                 )
                 nm?.createNotificationChannel(channel)
             }

@@ -1,5 +1,5 @@
 import 'package:signals/signals.dart';
-import 'package:wear_app/ble/gatt_client.dart';
+import 'package:wear_app/ble/gatt_central_client.dart';
 import 'package:wear_app/gen/wearlink.pb.dart';
 
 /// Data class representing an incoming call notification from the phone.
@@ -51,7 +51,7 @@ class CallSignal {
   /// [uuid] identifies the GATT characteristic (expected [GattUuid.callEvent]).
   /// [data] is the raw protobuf-encoded [CallEvent] payload.
   void updateFromFrame(String uuid, List<int> data) {
-    if (uuid != GattUuid.callEvent) return;
+    if (uuid != GattCentralUuid.callEvent) return;
 
     final event = CallEvent.fromBuffer(data);
     if (event.callId.isEmpty) return;
@@ -84,7 +84,7 @@ class CallSignal {
   /// [callId] overrides the target call ID; defaults to the current
   /// [incomingCall]'s id, or an empty string if none.
   Future<void> sendAction(
-    GattClient client,
+    GattCentralClient client,
     CallAction_Action action, {
     String? callId,
   }) async {
@@ -94,7 +94,7 @@ class CallSignal {
       action: action,
       nonce: DateTime.now().millisecondsSinceEpoch & 0xffff,
     );
-    await client.send(GattUuid.callAction, proto.writeToBuffer());
+    await client.send(GattCentralUuid.callAction, proto.writeToBuffer());
 
     // Optimistically update local state to match the action sent.
     switch (action) {

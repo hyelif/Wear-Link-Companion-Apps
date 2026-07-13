@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:signals/signals.dart';
-import 'package:wear_app/ble/gatt_client.dart';
+import 'package:wear_app/ble/gatt_central_client.dart';
 import 'package:wear_app/gen/wearlink.pb.dart';
 
 /// Data class representing the currently playing music track info.
@@ -57,7 +57,7 @@ class MusicInfo {
 /// final music = MusicSignal()..gatt = gattClient;
 /// ```
 class MusicSignal {
-  GattClient? _gatt;
+  GattCentralClient? _gatt;
 
   /// Currently playing track info, or null if no track is active.
   final nowPlaying = signal<MusicInfo?>(null, options: SignalOptions(name: 'nowPlaying'));
@@ -68,7 +68,7 @@ class MusicSignal {
   MusicSignal();
 
   /// Inject the [GattClient] instance used for outbound commands.
-  set gatt(GattClient client) => _gatt = client;
+  set gatt(GattCentralClient client) => _gatt = client;
 
   /// Process an inbound BLE frame.
   ///
@@ -76,7 +76,7 @@ class MusicSignal {
   /// payload is decoded as a [MusicNowPlaying] proto and the signals are
   /// updated. Frames for other UUIDs are silently ignored.
   void updateFromFrame(String uuid, Uint8List data) {
-    if (uuid != GattUuid.musicNowPlaying) return;
+    if (uuid != GattCentralUuid.musicNowPlaying) return;
 
     final frame = MusicNowPlaying.fromBuffer(data);
     final info = MusicInfo(
@@ -100,7 +100,7 @@ class MusicSignal {
     // Replay-protection nonce (W7). Matches CallAction's convention.
     cmd.nonce = DateTime.now().millisecondsSinceEpoch & 0xffff;
     final payload = cmd.writeToBuffer();
-    await gatt.send(GattUuid.musicCommand, payload);
+    await gatt.send(GattCentralUuid.musicCommand, payload);
   }
 
   /// Send a PLAY command.

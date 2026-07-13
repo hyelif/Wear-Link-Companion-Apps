@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:signals/signals_flutter.dart';
-import 'package:wear_app/ble/gatt_client.dart';
+import 'package:wear_app/ble/gatt_central_client.dart';
 import 'package:wear_app/gen/wearlink.pb.dart';
 import 'package:wear_app/signals/call_signal.dart';
 
@@ -15,7 +15,7 @@ import 'package:wear_app/signals/call_signal.dart';
 ///   - Outgoing: "Calling..." with cancel button
 class CallScreen extends StatelessWidget {
   final CallSignal callSignal;
-  final GattClient gattClient;
+  final GattCentralClient gattClient;
 
   const CallScreen({
     super.key,

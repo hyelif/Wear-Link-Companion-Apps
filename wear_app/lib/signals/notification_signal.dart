@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:signals/signals.dart';
-import 'package:wear_app/ble/gatt_client.dart';
+import 'package:wear_app/ble/gatt_central_client.dart';
 import 'package:wear_app/gen/wearlink.pb.dart';
 
 /// Data class representing a notification pushed from the phone
@@ -72,16 +72,16 @@ class NotificationSignal {
   final unreadCount = signal<int>(0, options: SignalOptions(name: 'unreadCount'));
 
   /// GattClient for outbound action writes. Set via [listen] or directly.
-  GattClient? _gatt;
+  GattCentralClient? _gatt;
 
   /// Set the GattClient instance for outbound writes.
-  set gattClient(GattClient client) => _gatt = client;
+  set gattClient(GattCentralClient client) => _gatt = client;
 
   StreamSubscription<Uint8List>? _sub;
 
   /// Start listening to inbound frames on [uuid] (typically
   /// [GattUuid.notification]). Also sets [gatt] for outbound writes.
-  void listen(GattClient client, String uuid) {
+  void listen(GattCentralClient client, String uuid) {
     _gatt = client;
     _sub?.cancel();
     _sub = client.inbound(uuid).listen(_onFrame);
@@ -90,7 +90,7 @@ class NotificationSignal {
   /// Process an inbound BLE frame directly. [uuid] is the characteristic
   /// the frame arrived on; only [GattUuid.notification] is handled.
   void updateFromFrame(String uuid, Uint8List data) {
-    if (uuid == GattUuid.notification) {
+    if (uuid == GattCentralUuid.notification) {
       _onFrame(data);
     }
   }
@@ -103,7 +103,7 @@ class NotificationSignal {
     // Replay-protection nonce (W7). Matches CallAction's convention.
     action.nonce = DateTime.now().millisecondsSinceEpoch & 0xffff;
     final payload = action.writeToBuffer();
-    await client.send(GattUuid.notificationAction, payload);
+    await client.send(GattCentralUuid.notificationAction, payload);
   }
 
   /// Dismiss the notification identified by [id]: remove it from the local

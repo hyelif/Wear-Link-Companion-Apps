@@ -37,10 +37,10 @@ final class MusicController: NSObject {
     nonisolated(unsafe) private var updateTimer: Timer?
     nonisolated(unsafe) private var lastPositionUpdate: Date?
 
-    /// Weak reference to the `GattClient` we last registered the command
+    /// Weak reference to the `GattNotifier` façade we last registered the command
     /// handler on. Used to detect reconnections and avoid redundant or
     /// orphaned registrations.
-    private weak var registeredGatt: GattClient?
+    private weak var registeredGatt: GattNotifier?
 
     /// Opaque handler references returned by `MPRemoteCommand.addTarget(handler:)`,
     /// retained so they can be removed in `deinit`.

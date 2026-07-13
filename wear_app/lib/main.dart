@@ -4,13 +4,12 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:signals/signals_flutter.dart';
 
-import 'package:wear_app/ble/gatt_client.dart';
-import 'package:wear_app/ble/packet_codec.dart';
+import 'package:wear_app/ble/gatt_central_client.dart';
 import 'package:wear_app/features/call/call_screen.dart';
 import 'package:wear_app/features/health/health_screen.dart';
 import 'package:wear_app/features/music/music_screen.dart';
 import 'package:wear_app/features/notification/notification_screen.dart';
-import 'package:wear_app/platform/ble_peripheral_channel.dart';
+import 'package:wear_app/platform/ble_central_channel.dart';
 import 'package:wear_app/platform/health_services_channel.dart';
 import 'package:wear_app/signals/ble_signal.dart';
 import 'package:wear_app/signals/call_signal.dart';
@@ -20,8 +19,8 @@ import 'package:wear_app/signals/notification_signal.dart';
 import 'package:wear_app/gen/wearlink.pb.dart';
 
 late final BleSignal bleSignal;
-late final BlePeripheralChannel bleChannel;
-late final GattClient gatt;
+late final BleCentralChannel bleCentralChannel;
+late final GattCentralClient gattCentral;
 late final HealthServicesChannel healthChannel;
 late final HealthSignal healthSignal;
 late final CallSignal callSignal;
@@ -56,8 +55,8 @@ Future<void> main() async {
   notificationSignal = NotificationSignal();
   musicSignal = MusicSignal();
 
-  bleChannel = BlePeripheralChannel();
-  gatt = GattClient(channel: bleChannel);
+  bleCentralChannel = BleCentralChannel();
+  gattCentral = GattCentralClient(channel: bleCentralChannel);
   healthChannel = HealthServicesChannel();
   healthSignal = HealthSignal(healthChannel);
 
@@ -65,26 +64,17 @@ Future<void> main() async {
   //    all now initialized, so the first frame is safe.
   runApp(const WearLinkApp());
 
-  // 3. Background async init: runtime permissions (may show system dialogs)
-  //    + native GATT server / advertiser / health collector start. UI is
-  //    already on screen, so dialogs overlay a rendered app, not a black box.
+  // 3. Background async init: native BLE central scanner + health collector
+  //    start. UI is already on screen, so any dialogs overlay a rendered app.
   try {
-    // BLE perms are the hard gate for the GATT server + advertiser. Await
-    // before gatt.start() or the advertiser silently fails (onStartFailure)
-    // and the watch stays invisible to the iPhone.
-    final bleGranted = await bleChannel.requestPermissions();
-    if (!bleGranted) {
-      debugPrint('BLE runtime permissions denied — FGS cannot start. User must grant via Settings.');
-    }
-
-    gatt.start(
+    gattCentral.start(
       onFrame: (uuid, payload) {
         bleSignal.setFrame(uuid, payload);
-        if (uuid == GattUuid.linkControl) {
+        if (uuid == GattCentralUuid.linkControl) {
           _handleLinkControl(payload);
           return;
         }
-        if (uuid == GattUuid.healthControl) {
+        if (uuid == GattCentralUuid.healthControl) {
           _handleHealthControl(payload);
           return;
         }
@@ -103,8 +93,8 @@ Future<void> main() async {
       onError: (msg) => debugPrint('BLE error: $msg'),
     );
 
-    musicSignal.gatt = gatt;
-    notificationSignal.gattClient = gatt;
+    musicSignal.gatt = gattCentral;
+    notificationSignal.gattClient = gattCentral;
 
     // Health perms (BODY_SENSORS + ACTIVITY_RECOGNITION) gate HR/steps capture.
     await healthChannel.requestPermissions();
@@ -125,13 +115,13 @@ void _handleLinkControl(Uint8List payload) async {
     final lc = LinkControl.fromBuffer(payload);
     if (lc.kind == LinkControl_Kind.HEARTBEAT) {
       final ack = LinkControl(kind: LinkControl_Kind.ACK, seq: lc.seq);
-      await gatt.send(
-        GattUuid.linkControl,
+      await gattCentral.send(
+        GattCentralUuid.linkControl,
         Uint8List.fromList(ack.writeToBuffer()),
       );
     }
   } catch (_) {
-    // Malformed LinkControl — liveness simply isn't confirmed this round.
+    // Malformed LinkControl -- liveness simply isn't confirmed this round.
   }
 }
 
@@ -165,7 +155,7 @@ void _handleHealthControl(Uint8List payload) async {
         break;
     }
   } catch (_) {
-    // Malformed HealthControl — ignore; the phone re-sends config on next connect.
+    // Malformed HealthControl -- ignore; the phone re-sends config on next connect.
   }
 }
 
@@ -191,7 +181,7 @@ void _flushHealth() {
   final seq = _healthFrameSeq;
   _healthFrameSeq = (_healthFrameSeq + 1) & 0xFFFFFFFF;
   final frame = HealthFrame(sequence: seq, samples: samples, compressed: false);
-  gatt.send(GattUuid.healthStream, Uint8List.fromList(frame.writeToBuffer()));
+  gattCentral.send(GattCentralUuid.healthStream, Uint8List.fromList(frame.writeToBuffer()));
 }
 
 /// Build a framed DeviceInfo protobuf from native device facts and cache it on
@@ -199,22 +189,13 @@ void _flushHealth() {
 /// timer tick so the battery reading stays fresh.
 Future<void> _refreshDeviceInfo() async {
   try {
-    final info = await bleChannel.getDeviceInfo();
-    final proto = DeviceInfo(
-      model: (info['model'] as String?) ?? '',
-      firmware: (info['firmware'] as String?) ?? '',
-      batteryPercent: (info['battery'] as int?) ?? 0,
-      preferredMtu: (info['mtu'] as int?) ?? 247,
-    );
-    final payload = Uint8List.fromList(proto.writeToBuffer());
-    final frame = PacketCodec.encode(
-      seq: 0,
-      continuation: false,
-      payload: payload,
-    );
-    await bleChannel.setDeviceInfo(frame);
+    final info = await bleCentralChannel.requestMtu(247);
+    // DeviceInfo is served by the peripheral; in central mode we read it
+    // from the remote device info characteristic instead of caching locally.
+    // For now, log the negotiated MTU as a connectivity check.
+    debugPrint('BLE MTU after request: $info');
   } catch (_) {
-    // Native channel not ready yet — retried on the next health tick.
+    // Native channel not ready yet -- retried on the next health tick.
   }
 }
 
@@ -343,12 +324,12 @@ class ConnectionScreen extends StatelessWidget {
                 label: const Text("Quick Sync", style: TextStyle(color: Colors.white)),
                 backgroundColor: Colors.teal,
                 onPressed: () async {
-                  // Force-restart the native BLE foreground service + advertiser,
+                  // Force-reconnect the native BLE central scanner,
                   // refresh the DeviceInfo payload, and push any buffered health
                   // samples. This is the manual recovery path when the auto-start
-                  // path fails (e.g. permission denied at launch or FGS killed).
+                  // path fails.
                   try {
-                    await gatt.restart();
+                    await gattCentral.reconnect();
                     await _refreshDeviceInfo();
                     _flushHealth();
                   } catch (e) {
@@ -412,7 +393,7 @@ class ConnectionScreen extends StatelessWidget {
                     label: 'Calls',
                     onTap: () => Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => CallScreen(callSignal: callSignal, gattClient: gatt)),
+                      MaterialPageRoute(builder: (_) => CallScreen(callSignal: callSignal, gattClient: gattCentral)),
                     ),
                   ),
                   _FeatureCard(

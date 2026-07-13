@@ -49,10 +49,15 @@
     <string>LaunchScreen</string>
     <key>UIBackgroundModes</key>
     <array>
-        <!-- CoreBluetooth central keeps working in background.
+        <!-- Bridge model: iPhone is the GATT server (CBPeripheralManager).
+             bluetooth-peripheral keeps the peripheral manager / advertiser
+             alive in background so the watch can reconnect while the iPhone
+             screen is off. bluetooth-central retained for compatibility with
+             any residual central-mode code paths.
              remote-notification REMOVED: APNs requires a paid Apple Developer
              Program (not available on free / SideStore accounts). Re-add for a
              paid / App Store build once the NotificationServiceExtension is restored. -->
+        <string>bluetooth-peripheral</string>
         <string>bluetooth-central</string>
     </array>
     <key>UIRequiredDeviceCapabilities</key>

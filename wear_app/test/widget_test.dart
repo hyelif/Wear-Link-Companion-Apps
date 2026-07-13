@@ -3,8 +3,8 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:wear_app/ble/gatt_client.dart';
-import 'package:wear_app/platform/ble_peripheral_channel.dart';
+import 'package:wear_app/ble/gatt_central_client.dart';
+import 'package:wear_app/platform/ble_central_channel.dart';
 import 'package:wear_app/platform/health_services_channel.dart';
 import 'package:wear_app/main.dart' as app;
 import 'package:wear_app/signals/ble_signal.dart';
@@ -15,9 +15,9 @@ void main() {
     TestWidgetsFlutterBinding.ensureInitialized();
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    const mc = MethodChannel('wearlink/ble');
+    const mc = MethodChannel('wearlink/ble_central');
     messenger.setMockMethodCallHandler(mc, (call) async {
-      // start/stop/advertiseStart/advertiseStop/notify -> truthy
+      // startScan/stopScan/disconnect/write/requestMtu -> truthy
       return true;
     });
     // Health method channel: start/stop/startActive/stopActive/requestPermissions
@@ -25,12 +25,12 @@ void main() {
     const hc = MethodChannel('wearlink/health');
     messenger.setMockMethodCallHandler(hc, (call) async => true);
     // init app globals. ConnectionScreen.build reads healthSignal during the
-    // first frame (Live Health Stats card), so it MUST be initialized here —
+    // first frame (Live Health Stats card), so it MUST be initialized here --
     // the test pumps WearLinkApp directly and never calls main(), where the
     // real safe-start init would have constructed it.
     app.bleSignal = BleSignal();
-    app.gatt = GattClient(channel: BlePeripheralChannel());
-    app.gatt.start();
+    app.gattCentral = GattCentralClient(channel: BleCentralChannel());
+    app.gattCentral.start();
     app.healthChannel = HealthServicesChannel();
     app.healthSignal = HealthSignal(app.healthChannel);
   });

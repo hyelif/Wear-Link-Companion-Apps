@@ -26,9 +26,11 @@ final class AppContainer {
         self.notification = NotificationForwarder(ble: ble)
         self.music = MusicController(ble: ble)
 
-        // Wire feature controllers into BLEManager so inbound watch data
-        // (callAction, notificationAction, musicCommand) is dispatched
-        // immediately when GattClient connects.
+        // Wire feature controllers into BLEManager so inbound watch writes
+        // (callAction, notificationAction, musicCommand) are dispatched
+        // immediately when a central subscribes. In bridge mode the iPhone is
+        // the GATT server; these weak refs are the dispatch targets for
+        // didReceiveWriteRequests.
         ble.callController = self.call
         ble.notificationForwarder = self.notification
         ble.musicController = self.music
@@ -40,20 +42,14 @@ final class AppContainer {
         guard !didStart else { return }
         didStart = true
 
-        // Inbound watch data (callAction / notificationAction / musicCommand) is
-        // dispatched by BLEManager.centralManager(_:didConnect:) -> GattClient.onPayload,
-        // re-registered on every connect. AppContainer wires the feature controllers
-        // into BLEManager in init() (callController / notificationForwarder /
-        // musicController), so nothing to register here at launch. The previous
-        // `guard let gatt = ble.gatt else { assertionFailure; return }` was wrong: no
-        // GATT connection exists at launch, so it bailed (crashing in debug) and
-        // skipped health authorization + startScanning — the app never connected.
-
-        // Begin BLE scanning for the watch.
+        // Bridge model: BLEManager is a CBPeripheralManager. startScanning()
+        // (kept under its historical name for view compatibility) publishes the
+        // WearLink GATT service and starts advertising; the watch scans and
+        // connects. No central-side scan/connect happens on the iPhone anymore.
         ble.startScanning()
     }
 
-    /// Disconnect the watch and clear the device model.
+    /// Stop advertising and clear the device model.
     func disconnectDevice() {
         ble.disconnect()
         device = nil

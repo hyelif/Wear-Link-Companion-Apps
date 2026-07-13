@@ -148,6 +148,7 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     result.success(true)
                 }
                 "requestPermissions" -> requestBlePermissions(result)
+                "requestBatteryExemption" -> requestBatteryExemption(result)
                 else -> result.notImplemented()
             }
         } catch (t: Throwable) {
@@ -243,6 +244,38 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
         Log.i("WearLink/Ble", "BLE permission result: granted=$granted " +
             "(grantResults=${grantResults.joinToString()})")
         pending?.success(granted)
+    }
+
+    /// Request exemption from battery optimization so the system does not kill
+    /// the FGS when the app goes to background. On Wear OS the system is very
+    /// aggressive about stopping foreground services — without this exemption
+    /// the service is killed within seconds of screen-off, the GATT server
+    /// disappears, and the iPhone can never complete a connection.
+    /// This opens the system Settings page for the user to toggle "Don't
+    /// optimize" on. Returns true if already exempted, false if the user
+    /// needs to grant it manually.
+    private fun requestBatteryExemption(result: Result) {
+        val act = activity ?: run { result.success(false); return }
+        val pm = act.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        if (pm == null) { result.success(false); return }
+        if (pm.isIgnoringBatteryOptimizations(act.packageName)) {
+            Log.i("WearLink/Ble", "requestBatteryExemption: already exempted")
+            result.success(true)
+            return
+        }
+        // Open the system battery optimization settings for our app.
+        val intent = Intent(
+            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            android.net.Uri.parse("package:${act.packageName}")
+        )
+        // FLAG_ACTIVITY_NEW_TASK is needed because we may not be in an activity
+        // context when this is called from the plugin.
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        act.startActivity(intent)
+        Log.i("WearLink/Ble", "requestBatteryExemption: opened system settings — user must toggle 'Don't optimize'")
+        // We can't wait for the result, so return false to indicate the user
+        // needs to manually grant it.
+        result.success(false)
     }
 
     // ---- ActivityAware ---------------------------------------------------
