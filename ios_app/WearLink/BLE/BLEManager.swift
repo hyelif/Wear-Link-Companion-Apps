@@ -227,61 +227,61 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
             type: WearLinkUUID.deviceInfo,
             properties: [.read],
             value: nil,
-            permissions: [.readable, .encryption])
+            permissions: [.readable, .readEncryptionRequired])
 
         let healthStreamChar = CBMutableCharacteristic(
             type: WearLinkUUID.healthStream,
             properties: [.notify, .indicate],
             value: nil,
-            permissions: [.readable, .encryption])
+            permissions: [.readable, .readEncryptionRequired])
 
         let healthControlChar = CBMutableCharacteristic(
             type: WearLinkUUID.healthControl,
             properties: [.write, .writeWithoutResponse],
             value: nil,
-            permissions: [.writeable, .encryption])
+            permissions: [.writeable, .writeEncryptionRequired])
 
         let callEventChar = CBMutableCharacteristic(
             type: WearLinkUUID.callEvent,
             properties: [.notify, .indicate],
             value: nil,
-            permissions: [.readable, .encryption])
+            permissions: [.readable, .readEncryptionRequired])
 
         let callActionChar = CBMutableCharacteristic(
             type: WearLinkUUID.callAction,
             properties: [.write, .writeWithoutResponse],
             value: nil,
-            permissions: [.writeable, .encryption])
+            permissions: [.writeable, .writeEncryptionRequired])
 
         let notificationChar = CBMutableCharacteristic(
             type: WearLinkUUID.notification,
             properties: [.notify, .indicate],
             value: nil,
-            permissions: [.readable, .encryption])
+            permissions: [.readable, .readEncryptionRequired])
 
         let notificationActionChar = CBMutableCharacteristic(
             type: WearLinkUUID.notificationAction,
             properties: [.write, .writeWithoutResponse],
             value: nil,
-            permissions: [.writeable, .encryption])
+            permissions: [.writeable, .writeEncryptionRequired])
 
         let musicNowPlayingChar = CBMutableCharacteristic(
             type: WearLinkUUID.musicNowPlaying,
             properties: [.notify, .indicate],
             value: nil,
-            permissions: [.readable, .encryption])
+            permissions: [.readable, .readEncryptionRequired])
 
         let musicCommandChar = CBMutableCharacteristic(
             type: WearLinkUUID.musicCommand,
             properties: [.write, .writeWithoutResponse],
             value: nil,
-            permissions: [.writeable, .encryption])
+            permissions: [.writeable, .writeEncryptionRequired])
 
         let linkControlChar = CBMutableCharacteristic(
             type: WearLinkUUID.linkControl,
             properties: [.notify, .indicate, .write, .writeWithoutResponse],
             value: nil,
-            permissions: [.readable, .writeable, .encryption])
+            permissions: [.readable, .writeable, .readEncryptionRequired, .writeEncryptionRequired])
 
         svc.characteristics = [
             deviceInfoChar, healthStreamChar, healthControlChar,
