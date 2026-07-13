@@ -427,7 +427,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
                 // Characteristic has .encryption permission — if the central is
                 // not yet bonded CoreBluetooth rejects the read automatically and
                 // triggers the iOS Pair dialog before this delegate is called.
-                log(.info, "Read on encrypted characteristic \(uuid.uuidString) — encryption required, Pair dialog triggers if not bonded")
+                log(.info, "FE10 read — returning cached DeviceInfo (model=\(self.cachedDeviceInfo.model), battery=\(self.cachedDeviceInfo.batteryPercent)%)")
                 let bytes = ProtoCodec.encodeDeviceInfo(cachedDeviceInfo)
                 // Truncate to the central's MTU if smaller than the payload.
                 let mtu = request.central.maximumUpdateValueLength

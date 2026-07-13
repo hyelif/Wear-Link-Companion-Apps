@@ -176,23 +176,47 @@ class BleCentralService(private val context: Context) {
         }
     }
 
+    /// SharedPreferences key for the last connected iPhone MAC address.
+    private val PREFS_NAME = "wearlink_central"
+    private val KEY_IPHONE_ADDR = "iphone_address"
+
     private fun startDutyCycledScan() {
         handler.removeCallbacks(scanRunnable)
-        // Check for already-bonded iPhone before scanning. If we find one,
-        // connect directly — this makes reconnection instant after initial
-        // pairing.
-        val adapter = bluetoothAdapter
-        if (adapter != null) {
-            val bonded = adapter.bondedDevices
-            for (device in bonded) {
-                val uuids = device.uuids
-                if (uuids != null && uuids.any { it.uuid == Uuids.service }) {
-                    Log.i(TAG, "Found bonded iPhone ${device.address} — connecting directly")
-                    connect(device)
-                    return
-                }
+        val adapter = bluetoothAdapter ?: run { scanRunnable.run(); return }
+        val bonded = adapter.bondedDevices
+        if (bonded.isEmpty()) {
+            Log.d(TAG, "No bonded devices — falling back to BLE scan")
+            scanRunnable.run()
+            return
+        }
+
+        // 1. Try stored iPhone address first (fast path after initial pairing).
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val savedAddr = prefs.getString(KEY_IPHONE_ADDR, null)
+        if (savedAddr != null) {
+            val match = bonded.firstOrNull { it.address == savedAddr }
+            if (match != null) {
+                Log.i(TAG, "Found saved iPhone ${match.address} — connecting directly")
+                connect(match)
+                return
             }
         }
+
+        // 2. Try each bonded device — connect, discover services, check for
+        //    WearLink service. This handles the case where the user paired
+        //    in Settings → Bluetooth (no service UUID in SDP record).
+        Log.i(TAG, "Searching ${bonded.size} bonded device(s) for WearLink service...")
+        for (device in bonded) {
+            Log.d(TAG, "Trying bonded device: ${device.name ?: "Unknown"} [${device.address}]")
+            // We can't check device.uuids reliably (it's null for devices
+            // paired via Settings). Instead we connect and discover services.
+            // The first device with WearLink service wins.
+            connect(device)
+            return  // onServicesDiscovered will handle success or failure
+        }
+
+        // 3. Fall back to BLE scan (works when iOS app is in foreground).
+        Log.d(TAG, "No bonded device matched — falling back to BLE scan")
         scanRunnable.run()
     }
 
@@ -206,7 +230,21 @@ class BleCentralService(private val context: Context) {
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
-            Log.i(TAG, "Found WearLink device: ${device.name ?: "Unknown"} [${device.address}]")
+            // iOS strips the WearLink service UUID from advertisements when the
+            // app is in background. Check both the scan record's service UUIDs
+            // (foreground) and the device name (fallback). Also accept any device
+            // named "WearLink" or containing "iPhone".
+            val record = result.scanRecord
+            val hasServiceUuid = record?.serviceUuids?.any { it == Uuids.service } == true
+            val name = device.name ?: ""
+            val isWearLink = hasServiceUuid ||
+                name.contains("WearLink", ignoreCase = true) ||
+                name.contains("iPhone", ignoreCase = true)
+            if (!isWearLink) {
+                Log.d(TAG, "Skipping non-WearLink device: ${device.name ?: "Unknown"} [${device.address}]")
+                return
+            }
+            Log.i(TAG, "Found WearLink device: ${device.name ?: "Unknown"} [${device.address}] (uuidMatch=$hasServiceUuid)")
             // Stop scanning immediately and cancel the duty cycle — we found
             // the iPhone and will attempt to connect.
             stopScan()
@@ -228,13 +266,12 @@ class BleCentralService(private val context: Context) {
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
             .build()
-        // Filter by the WearLink service UUID so we only find iPhones
-        // advertising the WearLink GATT service.
-        val filter = ScanFilter.Builder()
-            .setServiceUuid(ParcelUuid(Uuids.service))
-            .build()
-        scanner.startScan(listOf(filter), settings, scanCallback)
-        Log.d(TAG, "Scanning for WearLink devices...")
+        // No service-UUID filter: iOS strips the WearLink service UUID from
+        // advertisements when the app is in background. Instead we scan for all
+        // devices and filter in onScanResult by checking the scan record's
+        // service UUIDs (foreground) or device name (fallback).
+        scanner.startScan(null, settings, scanCallback)
+        Log.d(TAG, "Scanning for WearLink devices (no UUID filter)...")
     }
 
     private fun stopScan() {
@@ -260,6 +297,22 @@ class BleCentralService(private val context: Context) {
         setConn(ConnState.CONNECTING)
         // autoConnect=false: we initiate the connection immediately.
         gatt = device.connectGatt(context, false, gattCallback)
+    }
+
+    /// Try the next bonded device after [failedDevice] didn't have the WearLink
+    /// service. Iterates through bonded devices and connects to the next one.
+    private fun tryNextBondedDevice(failedDevice: BluetoothDevice) {
+        val adapter = bluetoothAdapter ?: return
+        val bonded = adapter.bondedDevices.toList()
+        val idx = bonded.indexOf(failedDevice)
+        if (idx < 0 || idx + 1 >= bonded.size) {
+            Log.d(TAG, "No more bonded devices to try — falling back to BLE scan")
+            handler.postDelayed({ startDutyCycledScan() }, 1000)
+            return
+        }
+        val next = bonded[idx + 1]
+        Log.i(TAG, "Trying next bonded device: ${next.name ?: "Unknown"} [${next.address}]")
+        connect(next)
     }
 
     // ---- Write to characteristic -----------------------------------------
@@ -342,21 +395,28 @@ class BleCentralService(private val context: Context) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.e(TAG, "Service discovery failed: status=$status")
                 handler.post { onError?.invoke("Service discovery failed: status=$status") }
+                // Try next bonded device if this one didn't have WearLink.
+                tryNextBondedDevice(gatt.device)
                 return
             }
             val svc = gatt.getService(Uuids.service)
             if (svc == null) {
-                Log.w(TAG, "WearLink service not found on iPhone — unexpected")
-                handler.post { onError?.invoke("WearLink service not found on iPhone") }
+                Log.w(TAG, "WearLink service not found on ${gatt.device.address} — trying next bonded device")
+                gatt.disconnect()
+                gatt.close()
+                handler.postDelayed({ startDutyCycledScan() }, 1000)
                 return
             }
-            Log.i(TAG, "WearLink service discovered — subscribing to notification characteristics")
+            Log.i(TAG, "WearLink service discovered on ${gatt.device.address} — saving address")
+            // Save the iPhone's MAC address for instant reconnect next time.
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putString(KEY_IPHONE_ADDR, gatt.device.address).apply()
 
             // Subscribe to characteristics the iPhone notifies on:
-            //   FE10 deviceInfo, FE20 healthStream, FE30 callEvent,
-            //   FE40 notification, FE50 musicNowPlaying, FE60 linkControl
+            //   FE20 healthStream, FE30 callEvent, FE40 notification,
+            //   FE50 musicNowPlaying, FE60 linkControl
+            // NOTE: FE10 deviceInfo is read-only — we read it below instead.
             val notifyUuids = listOf(
-                Uuids.deviceInfo,
                 Uuids.healthStream,
                 Uuids.callEvent,
                 Uuids.notification,
@@ -372,6 +432,15 @@ class BleCentralService(private val context: Context) {
                 }
             }
 
+            // Read FE10 (deviceInfo) — this is a read-only characteristic, not notify.
+            val deviceInfoChar = svc.getCharacteristic(Uuids.deviceInfo)
+            if (deviceInfoChar != null) {
+                gatt.readCharacteristic(deviceInfoChar)
+                Log.d(TAG, "Reading FE10 deviceInfo...")
+            } else {
+                Log.w(TAG, "FE10 deviceInfo characteristic not found on iPhone")
+            }
+
             // Request larger MTU for better throughput (247 is the WearLink
             // standard MTU). The result arrives in onMtuChanged.
             gatt.requestMtu(247)
@@ -384,6 +453,15 @@ class BleCentralService(private val context: Context) {
             // Forward the raw frame to Dart via the callback. The Dart codec
             // handles reassembly and protobuf decode.
             handler.post { onFrame?.invoke(uuid, data) }
+        }
+
+        override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.i(TAG, "Read " + characteristic.uuid + ": " + value.size + " bytes")
+                handler.post { onFrame?.invoke(characteristic.uuid, value) }
+            } else {
+                Log.w(TAG, "Read failed for " + characteristic.uuid + ": status=" + status)
+            }
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {

@@ -16,6 +16,12 @@ struct DeviceInfoSection: View {
                     infoRow(label: "Is Charging", value: device.isCharging ? "Yes" : "No")
                     infoRow(label: "Last Seen", value: device.lastSeen.formatted(date: .abbreviated, time: .shortened))
                 }
+            } else if container.ble.state == .connected {
+                ContentUnavailableView(
+                    "Waiting for Device Information",
+                    systemImage: "info.circle",
+                    description: Text("Device information will appear once the watch sends its details.")
+                )
             } else {
                 ContentUnavailableView(
                     "No Device Data",

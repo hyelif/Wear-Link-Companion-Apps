@@ -8,6 +8,13 @@ struct DeviceDetailsView: View {
         Group {
             if let device = container.device {
                 detailsList(device: device)
+            } else if container.ble.state == .connected {
+                // BLE connected but device info not yet received from FE10 read
+                ContentUnavailableView(
+                    "Waiting for Device Info",
+                    systemImage: "applewatch.radiowaves.left.and.right",
+                    description: Text("Device details will appear once the watch sends its information.")
+                )
             } else {
                 ContentUnavailableView(
                     "No Device",

@@ -34,6 +34,18 @@ struct DevicesListView: View {
                                 }
                                 .padding(.horizontal, 4)
                             }
+                        } else if container.ble.state == .connected {
+                            // BLE connected but device info not yet received from FE10 read
+                            NavigationLink(destination: DeviceDetailsView()) {
+                                DeviceCardView(
+                                    deviceName: "Wear OS Watch",
+                                    deviceVersion: "Connected • Syncing...",
+                                    batteryLevel: 0,
+                                    isConnected: true,
+                                    isCharging: false
+                                )
+                            }
+                            .buttonStyle(.plain)
                         } else {
                             // No device placeholder
                             VStack(spacing: 12) {
