@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:signals/signals_flutter.dart';
 
 import 'package:wear_app/ble/gatt_central_client.dart';
@@ -88,12 +88,15 @@ Future<void> main() async {
         notificationSignal.updateFromFrame(uuid, payload);
         musicSignal.updateFromFrame(uuid, payload);
       },
-      onConn: (state) {
+      onConn: (state, {deviceName}) {
         bleSignal.setConn(switch (state) {
           'CONNECTED' => ConnState.connected,
           'CONNECTING' => ConnState.connecting,
           _ => ConnState.disconnected,
         });
+        if (deviceName != null) {
+          bleSignal.setDeviceName(deviceName);
+        }
       },
       onMtu: (mtu) => debugPrint('BLE MTU negotiated=$mtu'),
       onError: (msg) => debugPrint('BLE error: $msg'),
@@ -245,10 +248,11 @@ class _WearLinkAppState extends State<WearLinkApp> with WidgetsBindingObserver {
       title: 'WearLink',
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0D0D0D),
+        scaffoldBackgroundColor: const Color(0xFF050508),
         colorScheme: ColorScheme.dark(
-          primary: Colors.teal,
-          secondary: Colors.tealAccent,
+          primary: const Color(0xFF14E5B3),
+          secondary: const Color(0xFF14E5B3),
+          surface: const Color(0xFF0D0D1A),
         ),
         textTheme: const TextTheme(
           displayLarge: TextStyle(fontSize: 36, fontWeight: FontWeight.bold),
@@ -275,116 +279,116 @@ class _WearLinkAppState extends State<WearLinkApp> with WidgetsBindingObserver {
 
 /// Dashboard / home screen for the watch.
 ///
-/// Top: BLE connection status indicator (icon + text).
-/// Body: scrollable list of feature cards (Health, Calls, Notifications, Music).
-/// Each card navigates to its respective feature screen.
-class ConnectionScreen extends StatelessWidget {
+/// Top: animated BLE connection status banner + Quick Sync button.
+/// Body: health stats card + scrollable list of feature cards.
+class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key});
+
+  @override
+  State<ConnectionScreen> createState() => _ConnectionScreenState();
+}
+
+class _ConnectionScreenState extends State<ConnectionScreen> {
+  bool _firstConnValue = true;
+  late final void Function() _connDispose;
+
+  @override
+  void initState() {
+    super.initState();
+    // Haptic feedback on connection state changes (skip the initial value).
+    _connDispose = bleSignal.connection.subscribe((_) {
+      if (_firstConnValue) {
+        _firstConnValue = false;
+        return;
+      }
+      HapticFeedback.mediumImpact();
+    });
+  }
+
+  @override
+  void dispose() {
+    _connDispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Detect round screen via shortest side; round watches are ~280-320 logical px.
+    final isRound = MediaQuery.of(context).size.shortestSide < 340;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
+        minimum: EdgeInsets.all(isRound ? 6 : 8),
         child: Column(
           children: [
-            // 1. BLE Connection Status Indicator
+            // 1. Top row: connection status banner + Quick Sync button
+            Row(
+              children: [
+                const Expanded(child: _ConnectionBanner()),
+                const SizedBox(width: 6),
+                const _QuickSyncButton(),
+              ],
+            ),
+            SizedBox(height: isRound ? 6 : 8),
+            // 2. Live Health Stats Card
             SignalBuilder(
               builder: (context) {
-                final conn = bleSignal.connection.value;
-                final (connText, connIcon) = switch (conn) {
-                  ConnState.disconnected => ('Searching for iPhone…', Icons.bluetooth_disabled),
-                  ConnState.connecting => ('Connecting…', Icons.bluetooth_searching),
-                  ConnState.connected => ('Connected to iPhone', Icons.bluetooth_connected),
-                };
+                final steps = healthSignal.steps.value;
+                final hr = healthSignal.heartRate.value;
 
-                final connColor = switch (conn) {
-                  ConnState.disconnected => Colors.grey[600]!,
-                  ConnState.connecting => Colors.orange,
-                  ConnState.connected => Colors.teal,
-                };
-
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                return Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(isRound ? 8 : 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0D0D1A),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: const Color(0xFF14E5B3).withValues(alpha: 0.25),
+                      width: 1,
+                    ),
+                  ),
+                  child: Column(
                     children: [
-                      Icon(connIcon, size: 20, color: connColor),
-                      const SizedBox(width: 8),
                       Text(
-                        connText,
-                        style: theme.textTheme.labelSmall?.copyWith(color: connColor, fontWeight: FontWeight.bold),
+                        "Daily Activity",
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: const Color(0xFF14E5B3),
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      SizedBox(height: isRound ? 4 : 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _StatItem(
+                            label: "Steps",
+                            value: steps.toStringAsFixed(0),
+                            icon: Icons.directions_walk,
+                          ),
+                          Container(
+                            width: 1,
+                            height: isRound ? 24 : 28,
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
+                          _StatItem(
+                            label: "HR",
+                            value: "${hr?.toStringAsFixed(0) ?? '--'} BPM",
+                            icon: Icons.favorite,
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 );
               },
             ),
-            const SizedBox(height: 8),
-            // 2. Primary Action Chip
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: ActionChip(
-                label: const Text("Quick Sync", style: TextStyle(color: Colors.white)),
-                backgroundColor: Colors.teal,
-                onPressed: () async {
-                  // Force-reconnect the native BLE central scanner,
-                  // refresh the DeviceInfo payload, and push any buffered health
-                  // samples. This is the manual recovery path when the auto-start
-                  // path fails.
-                  try {
-                    await gattCentral.reconnect();
-                    await _refreshDeviceInfo();
-                    _flushHealth();
-                  } catch (e) {
-                    debugPrint('Quick Sync failed: $e');
-                  }
-                },
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            // 3. Live Health Stats Card
-            SignalBuilder(
-              builder: (context) {
-                final steps = healthSignal.steps.value;
-                final hr = healthSignal.heartRate.value;
-
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1A1A2E),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: Colors.teal.withValues(alpha: 0.3), width: 1),
-                    ),
-                    child: Column(
-                      children: [
-                        Text("Daily Activity", style: theme.textTheme.labelSmall?.copyWith(color: Colors.tealAccent)),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _StatItem(label: "Steps", value: steps.toString(), icon: Icons.directions_walk),
-                            const VerticalDivider(color: Colors.grey),
-                            _StatItem(label: "HR", value: "$hr BPM", icon: Icons.favorite),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            // 4. Feature Navigation
+            SizedBox(height: isRound ? 6 : 8),
+            // 3. Feature Navigation
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: EdgeInsets.only(bottom: isRound ? 12 : 16),
                 children: [
                   _FeatureCard(
                     icon: Icons.favorite,
@@ -418,7 +422,6 @@ class ConnectionScreen extends StatelessWidget {
                       MaterialPageRoute(builder: (_) => MusicScreen(music: musicSignal)),
                     ),
                   ),
-                  const SizedBox(height: 24), // Bezel padding
                 ],
               ),
             ),
@@ -428,6 +431,292 @@ class ConnectionScreen extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Connection status banner
+// ---------------------------------------------------------------------------
+
+/// Animated full-width banner showing BLE connection state with color coding.
+/// Uses a checkmark icon for connected, pulsing background for connecting,
+/// and a glow effect for the connected state.
+class _ConnectionBanner extends StatelessWidget {
+  const _ConnectionBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return SignalBuilder(
+      builder: (context) {
+        final conn = bleSignal.connection.value;
+        final deviceName = bleSignal.deviceName.value;
+
+        final (bannerColor, icon, text) = switch (conn) {
+          ConnState.disconnected => (
+            const Color(0xFFFF5252),
+            Icons.bluetooth_disabled,
+            'Disconnected',
+          ),
+          ConnState.connecting => (
+            const Color(0xFFFFD600),
+            Icons.bluetooth_searching,
+            'Connecting...',
+          ),
+          ConnState.connected => (
+            const Color(0xFF00E676),
+            Icons.check_circle,
+            deviceName != null ? 'Connected to $deviceName' : 'Connected',
+          ),
+        };
+
+        // Connecting state: pulse the entire banner background.
+        if (conn == ConnState.connecting) {
+          return _ConnectingBanner(color: bannerColor, icon: icon, text: text);
+        }
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeInOut,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: bannerColor.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: bannerColor.withValues(alpha: 0.35)),
+            boxShadow: conn == ConnState.connected
+                ? [
+                    BoxShadow(
+                      color: bannerColor.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 15, color: bannerColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: child,
+                  ),
+                  child: Text(
+                    text,
+                    key: ValueKey(text),
+                    style: TextStyle(
+                      color: bannerColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Pulsing banner for the connecting state: background color, icon, and text
+/// all pulse together with a smooth opacity animation.
+class _ConnectingBanner extends StatefulWidget {
+  final Color color;
+  final IconData icon;
+  final String text;
+
+  const _ConnectingBanner({
+    required this.color,
+    required this.icon,
+    required this.text,
+  });
+
+  @override
+  State<_ConnectingBanner> createState() => _ConnectingBannerState();
+}
+
+class _ConnectingBannerState extends State<_ConnectingBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _pulseAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+    _pulseAnim = Tween<double>(begin: 0.08, end: 0.25).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulseAnim,
+      builder: (context, _) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: widget.color.withValues(alpha: _pulseAnim.value),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: widget.color.withValues(alpha: 0.4),
+            ),
+          ),
+          child: Row(
+            children: [
+              _PulsingIcon(icon: widget.icon, color: widget.color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: child,
+                  ),
+                  child: Text(
+                    widget.text,
+                    key: ValueKey(widget.text),
+                    style: TextStyle(
+                      color: widget.color,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Pulsing opacity animation for the connecting-state icon.
+class _PulsingIcon extends StatefulWidget {
+  final IconData icon;
+  final Color color;
+
+  const _PulsingIcon({required this.icon, required this.color});
+
+  @override
+  State<_PulsingIcon> createState() => _PulsingIconState();
+}
+
+class _PulsingIconState extends State<_PulsingIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+    _animation = Tween<double>(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) => Opacity(
+        opacity: _animation.value,
+        child: child,
+      ),
+      child: Icon(widget.icon, size: 15, color: widget.color),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Quick Sync button
+// ---------------------------------------------------------------------------
+
+/// Compact icon button in the top-right corner that forces a BLE reconnect.
+/// Shows a loading spinner while the reconnect is in flight.
+class _QuickSyncButton extends StatefulWidget {
+  const _QuickSyncButton();
+
+  @override
+  State<_QuickSyncButton> createState() => _QuickSyncButtonState();
+}
+
+class _QuickSyncButtonState extends State<_QuickSyncButton> {
+  bool _loading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 34,
+      height: 34,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        icon: _loading
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Color(0xFF14E5B3),
+                ),
+              )
+            : const Icon(Icons.refresh, size: 18, color: Color(0xFF14E5B3)),
+        onPressed: _loading ? null : _onSync,
+        style: IconButton.styleFrom(
+          backgroundColor: const Color(0xFF0D0D1A),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(9),
+            side: BorderSide(
+              color: const Color(0xFF14E5B3).withValues(alpha: 0.25),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onSync() async {
+    setState(() => _loading = true);
+    try {
+      await gattCentral.reconnect();
+      await _refreshDeviceInfo();
+      _flushHealth();
+    } catch (e) {
+      debugPrint('Quick Sync failed: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Health stat item
+// ---------------------------------------------------------------------------
 
 class _StatItem extends StatelessWidget {
   final String label;
@@ -440,16 +729,30 @@ class _StatItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Icon(icon, size: 16, color: Colors.tealAccent),
-        Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+        Icon(icon, size: 13, color: const Color(0xFF14E5B3)),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 9, color: Colors.grey),
+        ),
       ],
     );
   }
 }
 
+// ---------------------------------------------------------------------------
+// Feature card
+// ---------------------------------------------------------------------------
 
-/// A rounded, dark feature card with a teal circular icon, label, and chevron.
+/// A compact, rounded feature card with a teal circular icon, label, and chevron.
 class _FeatureCard extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -466,41 +769,42 @@ class _FeatureCard extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Material(
-        color: const Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.circular(20),
+        color: const Color(0xFF0D0D1A),
+        borderRadius: BorderRadius.circular(14),
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(14),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
             child: Row(
               children: [
                 // Teal circular icon
                 Container(
-                  width: 48,
-                  height: 48,
+                  width: 36,
+                  height: 36,
                   decoration: const BoxDecoration(
-                    color: Colors.teal,
+                    color: Color(0xFF14E5B3),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(icon, color: Colors.white, size: 24),
+                  child: Icon(icon, color: const Color(0xFF050508), size: 18),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 10),
                 // Feature label
                 Text(
                   label,
-                  style: theme.textTheme.titleMedium?.copyWith(
+                  style: theme.textTheme.titleSmall?.copyWith(
                     color: Colors.white,
+                    fontSize: 15,
                   ),
                 ),
                 const Spacer(),
                 // Chevron indicator
                 Icon(
                   Icons.chevron_right,
-                  color: Colors.teal[300],
-                  size: 28,
+                  color: const Color(0xFF14E5B3).withValues(alpha: 0.6),
+                  size: 22,
                 ),
               ],
             ),

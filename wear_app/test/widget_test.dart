@@ -38,6 +38,6 @@ void main() {
   testWidgets('shows disconnected prompt', (tester) async {
     await tester.pumpWidget(const app.WearLinkApp());
     await tester.pump();
-    expect(find.text('Searching for iPhone…'), findsOneWidget);
+    expect(find.text('Disconnected'), findsOneWidget);
   });
 }

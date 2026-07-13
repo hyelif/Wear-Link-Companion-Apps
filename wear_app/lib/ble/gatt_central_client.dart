@@ -42,7 +42,9 @@ class GattCentralClient {
   /// Inbound: uuid -> reassembled protobuf payload stream.
   final Map<String, StreamController<Uint8List>> _inbound = {};
   void Function(String uuid, Uint8List payload)? onFrame;
-  void Function(String state)? onConn;
+  /// Connection state callback. [deviceName] is the remote device name when
+  /// CONNECTED, null otherwise.
+  void Function(String state, {String? deviceName})? onConn;
   /// Fires when the remote peripheral negotiates a new ATT MTU.
   void Function(int mtu)? onMtu;
   /// Fires on native start/operation failure.
@@ -55,7 +57,7 @@ class GattCentralClient {
   /// Flutter engine re-attaches and main() re-runs).
   void start({
     void Function(String uuid, Uint8List payload)? onFrame,
-    void Function(String state)? onConn,
+    void Function(String state, {String? deviceName})? onConn,
     void Function(int mtu)? onMtu,
     void Function(String msg)? onError,
   }) {
@@ -70,7 +72,7 @@ class GattCentralClient {
     this.onError = onError;
     channel.listen((event) {
       if (event.type == 'conn') {
-        _onConn(event.connState);
+        _onConn(event.connState, deviceName: event.deviceName);
       } else if (event.type == 'frame') {
         _onRawFrame(event.uuid!, event.data!);
       } else if (event.type == 'mtu') {
@@ -160,8 +162,8 @@ class GattCentralClient {
     }
   }
 
-  void _onConn(String? state) {
-    onConn?.call(state ?? 'DISCONNECTED');
+  void _onConn(String? state, {String? deviceName}) {
+    onConn?.call(state ?? 'DISCONNECTED', deviceName: deviceName);
     if (state == 'DISCONNECTED') {
       _reassembler.clear();
       _outSeq = 0;

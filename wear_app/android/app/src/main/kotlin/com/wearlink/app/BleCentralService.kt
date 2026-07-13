@@ -47,7 +47,9 @@ class BleCentralService(private val context: Context) {
 
         // Static callback holders so the plugin can wire callbacks before
         // the service is started (same pattern as BlePeripheralService).
-        @Volatile var sOnConn: ((ConnState) -> Unit)? = null
+        // onConn carries (ConnState, deviceName?) — deviceName is the remote
+        // device name (iPhone) when CONNECTED, null otherwise.
+        @Volatile var sOnConn: ((ConnState, String?) -> Unit)? = null
         @Volatile var sOnFrame: ((UUID, ByteArray) -> Unit)? = null
         @Volatile var sOnMtu: ((Int) -> Unit)? = null
         @Volatile var sOnError: ((String) -> Unit)? = null
@@ -55,7 +57,7 @@ class BleCentralService(private val context: Context) {
 
     enum class ConnState { DISCONNECTED, CONNECTING, CONNECTED }
 
-    var onConnState: ((ConnState) -> Unit)? = null
+    var onConnState: ((ConnState, String?) -> Unit)? = null
     var onFrame: ((UUID, ByteArray) -> Unit)? = null
     var onMtuChanged: ((Int) -> Unit)? = null
     var onError: ((String) -> Unit)? = null
@@ -87,7 +89,9 @@ class BleCentralService(private val context: Context) {
             when (newState) {
                 BluetoothDevice.BOND_BONDED -> {
                     Log.i(TAG, "Bonded with ${device.address} successfully")
-                    handler.post { onConnState?.invoke(connState) }
+                    handler.post(object : Runnable {
+                        override fun run() { onConnState?.invoke(connState, null) }
+                    })
                 }
                 BluetoothDevice.BOND_NONE -> {
                     Log.i(TAG, "Bond broken with ${device.address} (was $prevState)")
@@ -144,7 +148,9 @@ class BleCentralService(private val context: Context) {
         subscribedChars.clear()
         bondState = BluetoothDevice.BOND_NONE
         try { context.unregisterReceiver(bondReceiver) } catch (_: Exception) {}
-        handler.post { onConnState?.invoke(ConnState.DISCONNECTED) }
+        handler.post(object : Runnable {
+            override fun run() { onConnState?.invoke(ConnState.DISCONNECTED, null) }
+        })
     }
 
     /// Disconnect from the iPhone without stopping the scan cycle.
@@ -374,7 +380,7 @@ class BleCentralService(private val context: Context) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.i(TAG, "GATT CONNECTED: ${gatt.device.address} (status=$status)")
-                    setConn(ConnState.CONNECTED)
+                    setConn(ConnState.CONNECTED, gatt.device.name)
                     // Discover services to find the WearLink service and its
                     // characteristics.
                     gatt.discoverServices()
@@ -520,8 +526,8 @@ class BleCentralService(private val context: Context) {
 
     // ---- State management ------------------------------------------------
 
-    private fun setConn(s: ConnState) {
+    private fun setConn(s: ConnState, deviceName: String? = null) {
         connState = s
-        handler.post { onConnState?.invoke(s) }
+        handler.post { onConnState?.invoke(s, deviceName) }
     }
 }

@@ -58,9 +58,9 @@ class BleCentralPlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamHa
         // Wire static callbacks so GATT events reach Flutter. Posting to the
         // main thread keeps the EventChannel thread-safe (GATT callbacks arrive
         // on binder/GATT threads).
-        BleCentralService.sOnConn = { s ->
+        BleCentralService.sOnConn = { s, deviceName ->
             mainHandler.post {
-                eventSink?.success(mapOf("type" to "conn", "state" to s.name))
+                eventSink?.success(mapOf("type" to "conn", "state" to s.name, "deviceName" to deviceName))
             }
         }
         BleCentralService.sOnFrame = { uuid, frame ->
