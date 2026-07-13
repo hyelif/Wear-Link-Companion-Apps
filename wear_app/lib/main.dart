@@ -64,9 +64,15 @@ Future<void> main() async {
   //    all now initialized, so the first frame is safe.
   runApp(const WearLinkApp());
 
-  // 3. Background async init: native BLE central scanner + health collector
-  //    start. UI is already on screen, so any dialogs overlay a rendered app.
+  // 3. Background async init: request BLE permissions, then start native BLE
+  //    central scanner + health collector. UI is already on screen, so any
+  //    dialogs overlay a rendered app.
   try {
+    // Request BLUETOOTH_SCAN + BLUETOOTH_CONNECT on Wear OS 3+ (API 31+).
+    // Without these grants, the BLE scanner silently fails and the watch
+    // cannot find the iPhone. The system shows a permission dialog.
+    await bleCentralChannel.requestPermissions();
+
     gattCentral.start(
       onFrame: (uuid, payload) {
         bleSignal.setFrame(uuid, payload);

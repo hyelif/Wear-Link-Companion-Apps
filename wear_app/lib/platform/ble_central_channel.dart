@@ -12,6 +12,9 @@ class BleCentralChannel {
 
   StreamSubscription? _sub;
 
+  Future<bool> requestPermissions() async =>
+      (await _m.invokeMethod('requestPermissions')) as bool;
+
   Future<void> startScan() async => _m.invokeMethod('startScan');
   Future<void> stopScan() async => _m.invokeMethod('stopScan');
   Future<void> disconnect() async => _m.invokeMethod('disconnect');
