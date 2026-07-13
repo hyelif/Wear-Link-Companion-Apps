@@ -231,7 +231,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
 
         let healthStreamChar = CBMutableCharacteristic(
             type: WearLinkUUID.healthStream,
-            properties: [.notify, .indicatable],
+            properties: [.notify, .indicate],
             value: nil,
             permissions: [.readable])
 
@@ -243,7 +243,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
 
         let callEventChar = CBMutableCharacteristic(
             type: WearLinkUUID.callEvent,
-            properties: [.notify, .indicatable],
+            properties: [.notify, .indicate],
             value: nil,
             permissions: [.readable])
 
@@ -255,7 +255,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
 
         let notificationChar = CBMutableCharacteristic(
             type: WearLinkUUID.notification,
-            properties: [.notify, .indicatable],
+            properties: [.notify, .indicate],
             value: nil,
             permissions: [.readable])
 
@@ -267,7 +267,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
 
         let musicNowPlayingChar = CBMutableCharacteristic(
             type: WearLinkUUID.musicNowPlaying,
-            properties: [.notify, .indicatable],
+            properties: [.notify, .indicate],
             value: nil,
             permissions: [.readable])
 
@@ -279,7 +279,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
 
         let linkControlChar = CBMutableCharacteristic(
             type: WearLinkUUID.linkControl,
-            properties: [.notify, .indicatable, .write, .writeWithoutResponse],
+            properties: [.notify, .indicate, .write, .writeWithoutResponse],
             value: nil,
             permissions: [.readable, .writeable])
 
@@ -289,7 +289,15 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
             notificationActionChar, musicNowPlayingChar, musicCommandChar,
             linkControlChar,
         ]
-        for c in svc.characteristics ?? [] {
+        // Use the local mutable references directly — svc.characteristics returns
+        // [CBCharacteristic] which cannot be assigned to [CBUUID: CBMutableCharacteristic].
+        let charList: [CBMutableCharacteristic] = [
+            deviceInfoChar, healthStreamChar, healthControlChar,
+            callEventChar, callActionChar, notificationChar,
+            notificationActionChar, musicNowPlayingChar, musicCommandChar,
+            linkControlChar,
+        ]
+        for c in charList {
             characteristics[c.uuid] = c
             reassemblers[c.uuid] = Reassembler()
         }
@@ -438,25 +446,24 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
     // MARK: - Write requests
 
     nonisolated func peripheralManager(_ p: CBPeripheralManager,
-                                       didReceiveWriteRequests requests: [CBATTRequest]) {
+                                       didReceiveWrite request: CBATTRequest) {
         Task { @MainActor in
-            for request in requests {
                 let uuid = request.characteristic.uuid
                 guard let value = request.value else {
                     p.respond(to: request, withResult: .invalidAttributeValueLength)
-                    continue
+                    return
                 }
                 // Decode the framed packet; LinkControl frames are dispatched
                 // directly, all others go through the per-UUID reassembler.
                 guard let frame = PacketCodec.decode(value) else {
                     log(.warning, "Bad frame on \(uuid.uuidString) (CRC/len mismatch) — dropping")
                     p.respond(to: request, withResult: .invalidAttributeValueLength)
-                    continue
+                    return
                 }
                 if uuid == WearLinkUUID.linkControl {
                     handleLinkControl(frame.payload)
                     p.respond(to: request, withResult: .success)
-                    continue
+                    return
                 }
                 let reassembler = reassemblers[uuid] ?? Reassembler()
                 reassemblers[uuid] = reassembler
@@ -464,7 +471,6 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
                     dispatchInbound(uuid: uuid, payload: full)
                 }
                 p.respond(to: request, withResult: .success)
-            }
         }
     }
 
@@ -661,6 +667,7 @@ final class GattNotifier {
 
     /// Frame `payload` and notify all centrals subscribed to `uuid`. In bridge
     /// mode this is how the iPhone pushes data to the watch.
+    @MainActor
     func write(_ payload: Data, to uuid: CBUUID, type: CBCharacteristicWriteType = .withResponse) {
         owner?.sendNotification(uuid, payload: payload)
     }
