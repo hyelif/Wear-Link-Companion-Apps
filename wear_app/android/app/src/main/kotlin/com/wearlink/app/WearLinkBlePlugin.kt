@@ -79,6 +79,20 @@ class WearLinkBlePlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                 )
             }
         }
+        // Surface the negotiated ATT MTU so Dart can size outbound notify chunks
+        // to the real MTU instead of a hardcoded 240 (which silently breaks notify
+        // when iOS negotiates a smaller MTU or the default 23). Also surface
+        // start/operation failures so Dart learns why advertising/connect died.
+        BlePeripheralService.sOnMtu = { mtu ->
+            mainHandler.post {
+                eventSink?.success(mapOf("type" to "mtu", "mtu" to mtu))
+            }
+        }
+        BlePeripheralService.sOnError = { msg ->
+            mainHandler.post {
+                eventSink?.success(mapOf("type" to "error", "msg" to msg))
+            }
+        }
         // If the service is ALREADY running (activity recreated by Wear OS while
         // the FGS kept running), push the fresh callbacks into the live instance
         // — onCreate only copies them once at first creation, so without this a

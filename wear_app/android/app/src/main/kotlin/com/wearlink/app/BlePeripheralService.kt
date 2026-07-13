@@ -50,6 +50,11 @@ class BlePeripheralService : Service() {
         private const val TAG = "WearLink/Ble"
         const val CHANNEL_ID = "wearlink_ble"
         const val NOTIF_ID = 4242
+        /// How long to advertise at LOW_LATENCY/HIGH_TX for fast first discovery
+        /// before dropping to LOW_POWER/MEDIUM to save battery while staying
+        /// connectable. 30s covers the iPhone's 2s-on/8s-off scan duty cycle
+        /// several times so the first discovery window is not missed.
+        private const val FAST_ADVERTISE_MS = 30_000L
 
         /// Singleton reference to the live service instance (set in onCreate,
         /// cleared in onDestroy). The plugin uses this to reach the GATT server
@@ -82,10 +87,14 @@ class BlePeripheralService : Service() {
     var onError: ((String) -> Unit)? = null              // start/operation failure feedback
 
     private val handler = Handler(Looper.getMainLooper())
-    private var server: BluetoothGattServer? = null
+    // server + connectedDevice are @Volatile: written on the GATT binder thread
+    // (onConnectionStateChange) but read on the platform-channel thread (notify()
+    // from Dart). Without @Volatile the platform thread could see a stale null or
+    // a freed device after a disconnect, NPE-ing the watch→iPhone notify path.
+    @Volatile private var server: BluetoothGattServer? = null
     private var adapter: BluetoothAdapter? = null
     private var advertiser: android.bluetooth.le.BluetoothLeAdvertiser? = null
-    private var connectedDevice: BluetoothDevice? = null
+    @Volatile private var connectedDevice: BluetoothDevice? = null
     private val notifying = Collections.synchronizedSet(mutableSetOf<UUID>())
     private var wakeLock: android.os.PowerManager.WakeLock? = null
 
@@ -131,6 +140,23 @@ class BlePeripheralService : Service() {
     /// infinite retry loop: a single name-overflow drops the name, then we keep
     /// advertising UUID-only (the same payload that worked in Phase 17).
     @Volatile private var nameDropped = false
+
+    /// P1 battery tuning: advertise LOW_LATENCY/HIGH_TX for FAST_ADVERTISE_MS
+    /// after each (re)start so the iPhone's scan cycle finds us fast, then drop
+    /// to LOW_POWER/MEDIUM to save battery while staying connectable. Reset to
+    /// false on every disconnect so a reconnect re-enters the fast window.
+    @Volatile private var lowPowerAdvertise = false
+
+    /// Scheduled downgrade from the fast discovery window to low-power advertising.
+    /// Removed on stop/disconnect so a fresh fast window always starts cleanly.
+    private val downgradeToLowPower = Runnable {
+        if (isAdvertising) {
+            Log.i(TAG, "advertise: fast window elapsed — downgrading to LOW_POWER to save battery")
+            stopAdvertising()
+            lowPowerAdvertise = true
+            startAdvertising()
+        }
+    }
 
     /**
      * Framed DeviceInfo bytes returned on an FE10 read. Built by Dart (DeviceInfo
@@ -305,7 +331,15 @@ class BlePeripheralService : Service() {
     private val advCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
             isAdvertising = true
-            Log.i(TAG, "advertise onStartSuccess — watch is broadcasting service UUID (connectable legacy)")
+            Log.i(TAG, "advertise onStartSuccess — watch is broadcasting service UUID (connectable legacy) " +
+                "mode=${if (lowPowerAdvertise) "LOW_POWER" else "LOW_LATENCY"}")
+            // P1: only schedule the downgrade from the fast window. The low-power
+            // restart (lowPowerAdvertise=true) is the steady state — no further
+            // downgrade. Replace any stale pending downgrade first.
+            if (!lowPowerAdvertise) {
+                handler.removeCallbacks(downgradeToLowPower)
+                handler.postDelayed(downgradeToLowPower, FAST_ADVERTISE_MS)
+            }
         }
         override fun onStartFailure(errorCode: Int) {
             isAdvertising = false
@@ -341,14 +375,20 @@ class BlePeripheralService : Service() {
             return
         }
         advertiser = a
-        // LOW_LATENCY + HIGH_TX + connectable + timeout 0. The 4-arg overload
-        // carries the device name in a separate scan-response packet (its own
-        // 31-byte budget) so the 128-bit service UUID fits in the primary advData.
+        // P1: fast window = LOW_LATENCY + HIGH_TX for quick first discovery;
+        // steady state = LOW_POWER + MEDIUM to save battery while still
+        // connectable. The 4-arg overload carries the device name in a separate
+        // scan-response packet (its own 31-byte budget) so the 128-bit service
+        // UUID fits in the primary advData.
+        val mode = if (lowPowerAdvertise) AdvertiseSettings.ADVERTISE_MODE_LOW_POWER
+                   else AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY
+        val tx = if (lowPowerAdvertise) AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM
+                 else AdvertiseSettings.ADVERTISE_TX_POWER_HIGH
         val settings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+            .setAdvertiseMode(mode)
             .setConnectable(true)
             .setTimeout(0)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+            .setTxPowerLevel(tx)
             .build()
         val data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)
@@ -359,12 +399,13 @@ class BlePeripheralService : Service() {
             .build()
         Log.i(TAG, "startAdvertising: requesting to advertise service UUID" +
             (if (nameDropped) " (name dropped)" else " + device name in scan response") +
-            " (connectable legacy)")
+            " (connectable legacy, ${if (lowPowerAdvertise) "LOW_POWER/MED" else "LOW_LAT/HIGH"})")
         a.startAdvertising(settings, data, scanResponse, advCallback)
     }
 
     fun stopAdvertising() {
         if (!isAdvertising && advertiser == null) return
+        handler.removeCallbacks(downgradeToLowPower)
         try { advertiser?.stopAdvertising(advCallback) } catch (_: Exception) {}
         advertiser = null
         isAdvertising = false
@@ -500,6 +541,10 @@ class BlePeripheralService : Service() {
                     // device name is not retried every reconnect cycle.
                     isAdvertising = false
                     advertiser = null
+                    // P1: a reconnect is a fresh discovery — re-enter the fast
+                    // LOW_LATENCY window and cancel any stale low-power downgrade.
+                    handler.removeCallbacks(downgradeToLowPower)
+                    lowPowerAdvertise = false
                     // Delay re-advertise ~300ms so the previous advertiser instance
                     // fully tears down — avoids ALREADY_STARTED (errorCode 3).
                     handler.postDelayed({ startAdvertising() }, 300)
@@ -595,7 +640,17 @@ class BlePeripheralService : Service() {
             }
         }
 
-        override fun onNotificationSent(device: BluetoothDevice, status: Int) {}
+        override fun onNotificationSent(device: BluetoothDevice, status: Int) {
+            // P2: a non-GATT_SUCCESS notify means the central dropped, unsubscribed,
+            // or the queue backed up — the frame may not have been delivered. Surface
+            // it to Dart so feature code can react (e.g. stop streaming, drop the
+            // session) instead of silently assuming delivery. Never swallow errors.
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.w(TAG, "onNotificationSent FAILED status=$status to ${device.address} " +
+                    "— central dropped/unsubscribed or queue backed up")
+                handler.post { onError?.invoke("notify send failed status=$status") }
+            }
+        }
     }
 
     private fun setConn(s: ConnState) {

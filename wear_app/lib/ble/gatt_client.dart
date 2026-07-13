@@ -2,6 +2,7 @@
 // applies the packet codec, and exposes typed outbound notify + inbound
 // frame dispatch. Feature code subscribes to inbound frames by UUID.
 import 'dart:async';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:wear_app/ble/packet_codec.dart';
@@ -29,23 +30,45 @@ class GattClient {
   final Reassembler _reassembler = Reassembler();
   int _outSeq = 0;
 
+  /// Negotiated ATT MTU (ATT default 23 until the central requests a larger
+  /// one and onMtuChanged fires on the Kotlin side). Used to size outbound
+  /// notify chunks so a frame never exceeds what the link can carry — a
+  /// hardcoded 240 silently broke notify when iOS negotiated a smaller MTU.
+  int _negotiatedMtu = 23;
+
   /// Inbound: uuid -> reassembled protobuf payload stream.
   final Map<String, StreamController<Uint8List>> _inbound = {};
   void Function(String uuid, Uint8List payload)? onFrame;
   void Function(String state)? onConn;
+  /// Fires when the central negotiates a new ATT MTU.
+  void Function(int mtu)? onMtu;
+  /// Fires on native start/operation failure (advertiser/GATT errors).
+  void Function(String msg)? onError;
 
   /// Call once at startup. Wires the native event stream into the codec.
   void start({
     void Function(String uuid, Uint8List payload)? onFrame,
     void Function(String state)? onConn,
+    void Function(int mtu)? onMtu,
+    void Function(String msg)? onError,
   }) {
     this.onFrame = onFrame;
     this.onConn = onConn;
+    this.onMtu = onMtu;
+    this.onError = onError;
     channel.listen((event) {
       if (event.type == 'conn') {
         _onConn(event.connState);
       } else if (event.type == 'frame') {
         _onRawFrame(event.uuid!, event.data!);
+      } else if (event.type == 'mtu') {
+        final m = event.mtu;
+        if (m != null && m > 0) {
+          _negotiatedMtu = m;
+          onMtu?.call(m);
+        }
+      } else if (event.type == 'error') {
+        onError?.call(event.errorMsg ?? 'unknown BLE error');
       }
     });
     channel.start();
@@ -72,9 +95,15 @@ class GattClient {
 
   /// Outbound: split a payload into framed chunks and notify the central.
   /// [uuid] must be a notify characteristic the central has subscribed to.
-  Future<void> send(String uuid, Uint8List payload, {int mtu = 240}) async {
-    final chunkLen = mtu - PacketCodec.headerSize - PacketCodec.crcSize;
-    final seq = _outSeq++;
+  /// Chunk size follows the negotiated ATT MTU so frames never exceed the
+  /// link capacity (was hardcoded 240, which broke notify on a small MTU).
+  Future<void> send(String uuid, Uint8List payload) async {
+    final chunkLen = max(1, _negotiatedMtu - PacketCodec.headerSize - PacketCodec.crcSize);
+    // Wrap the 16-bit seq space (matches iOS GattClient.write outSeq &+ 1 & 0xFFFF
+    // and codec.md). Without this _outSeq overflows the 2-byte frame field after
+    // 65535 writes and the central's dedup/ordering breaks.
+    final seq = _outSeq;
+    _outSeq = (_outSeq + 1) & 0xFFFF;
     var offset = 0;
     while (offset < payload.length) {
       final end = (offset + chunkLen).clamp(0, payload.length);

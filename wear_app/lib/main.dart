@@ -99,6 +99,8 @@ Future<void> main() async {
           _ => ConnState.disconnected,
         });
       },
+      onMtu: (mtu) => debugPrint('BLE MTU negotiated=$mtu'),
+      onError: (msg) => debugPrint('BLE error: $msg'),
     );
 
     musicSignal.gatt = gatt;
