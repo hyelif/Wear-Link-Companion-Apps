@@ -94,6 +94,9 @@ class BleCentralPlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamHa
                     val mtu = call.argument<Int>("mtu") ?: 247
                     result.success(central.requestMtu(mtu))
                 }
+                "createBond" -> {
+                    result.success(central.createBond())
+                }
                 else -> result.notImplemented()
             }
         } catch (t: Throwable) {

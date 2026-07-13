@@ -227,61 +227,61 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
             type: WearLinkUUID.deviceInfo,
             properties: [.read],
             value: nil,
-            permissions: [.readable])
+            permissions: [.readable, .encryption])
 
         let healthStreamChar = CBMutableCharacteristic(
             type: WearLinkUUID.healthStream,
             properties: [.notify, .indicate],
             value: nil,
-            permissions: [.readable])
+            permissions: [.readable, .encryption])
 
         let healthControlChar = CBMutableCharacteristic(
             type: WearLinkUUID.healthControl,
             properties: [.write, .writeWithoutResponse],
             value: nil,
-            permissions: [.writeable])
+            permissions: [.writeable, .encryption])
 
         let callEventChar = CBMutableCharacteristic(
             type: WearLinkUUID.callEvent,
             properties: [.notify, .indicate],
             value: nil,
-            permissions: [.readable])
+            permissions: [.readable, .encryption])
 
         let callActionChar = CBMutableCharacteristic(
             type: WearLinkUUID.callAction,
             properties: [.write, .writeWithoutResponse],
             value: nil,
-            permissions: [.writeable])
+            permissions: [.writeable, .encryption])
 
         let notificationChar = CBMutableCharacteristic(
             type: WearLinkUUID.notification,
             properties: [.notify, .indicate],
             value: nil,
-            permissions: [.readable])
+            permissions: [.readable, .encryption])
 
         let notificationActionChar = CBMutableCharacteristic(
             type: WearLinkUUID.notificationAction,
             properties: [.write, .writeWithoutResponse],
             value: nil,
-            permissions: [.writeable])
+            permissions: [.writeable, .encryption])
 
         let musicNowPlayingChar = CBMutableCharacteristic(
             type: WearLinkUUID.musicNowPlaying,
             properties: [.notify, .indicate],
             value: nil,
-            permissions: [.readable])
+            permissions: [.readable, .encryption])
 
         let musicCommandChar = CBMutableCharacteristic(
             type: WearLinkUUID.musicCommand,
             properties: [.write, .writeWithoutResponse],
             value: nil,
-            permissions: [.writeable])
+            permissions: [.writeable, .encryption])
 
         let linkControlChar = CBMutableCharacteristic(
             type: WearLinkUUID.linkControl,
             properties: [.notify, .indicate, .write, .writeWithoutResponse],
             value: nil,
-            permissions: [.readable, .writeable])
+            permissions: [.readable, .writeable, .encryption])
 
         svc.characteristics = [
             deviceInfoChar, healthStreamChar, healthControlChar,
@@ -322,6 +322,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
             switch p.state {
             case .poweredOn:
                 log(.info, "CBPeripheralManager poweredOn — publishing GATT service and advertising")
+                log(.info, "Bonding enabled — encrypted characteristics will trigger Pair dialog on access")
                 refreshDeviceInfo()
                 startScanning()
             case .poweredOff:
@@ -423,6 +424,10 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
             let uuid = request.characteristic.uuid
             switch uuid {
             case WearLinkUUID.deviceInfo:
+                // Characteristic has .encryption permission — if the central is
+                // not yet bonded CoreBluetooth rejects the read automatically and
+                // triggers the iOS Pair dialog before this delegate is called.
+                log(.info, "Read on encrypted characteristic \(uuid.uuidString) — encryption required, Pair dialog triggers if not bonded")
                 let bytes = ProtoCodec.encodeDeviceInfo(cachedDeviceInfo)
                 // Truncate to the central's MTU if smaller than the payload.
                 let mtu = request.central.maximumUpdateValueLength
@@ -449,6 +454,10 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
                                        didReceiveWrite request: CBATTRequest) {
         Task { @MainActor in
                 let uuid = request.characteristic.uuid
+                // Characteristic has .encryption permission — CoreBluetooth
+                // rejects writes from unencrypted centrals automatically and
+                // triggers the Pair dialog before this delegate is called.
+                log(.info, "Write on encrypted characteristic \(uuid.uuidString) — encryption required, Pair dialog triggers if not bonded")
                 guard let value = request.value else {
                     p.respond(to: request, withResult: .invalidAttributeValueLength)
                     return

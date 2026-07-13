@@ -12,7 +12,10 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
@@ -63,9 +66,38 @@ class BleCentralService(private val context: Context) {
     private var scanning = false
     @Volatile private var connState = ConnState.DISCONNECTED
     @Volatile private var negotiatedMtu = 23
+    @Volatile var bondState: Int = BluetoothDevice.BOND_NONE
 
     /// Track which characteristics we have successfully subscribed to via CCCD.
     private val subscribedChars = mutableSetOf<UUID>()
+
+    // ---- Bond state receiver ------------------------------------------------
+    //
+    // Listens for BluetoothDevice.ACTION_BOND_STATE_CHANGED broadcasts so we
+    // can track pairing state and notify Dart when bonding completes or breaks.
+
+    private val bondReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val action = intent.action
+            if (action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
+            val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
+            val prevState = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, BluetoothDevice.BOND_NONE)
+            val newState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
+            bondState = newState
+            when (newState) {
+                BluetoothDevice.BOND_BONDED -> {
+                    Log.i(TAG, "Bonded with ${device.address} successfully")
+                    handler.post { onConnState?.invoke(connState) }
+                }
+                BluetoothDevice.BOND_NONE -> {
+                    Log.i(TAG, "Bond broken with ${device.address} (was $prevState)")
+                }
+                BluetoothDevice.BOND_BONDING -> {
+                    Log.d(TAG, "Bonding in progress with ${device.address}...")
+                }
+            }
+        }
+    }
 
     // ---- Lifecycle --------------------------------------------------------
 
@@ -94,6 +126,9 @@ class BleCentralService(private val context: Context) {
         onFrame = sOnFrame
         onMtuChanged = sOnMtu
         onError = sOnError
+        // Register broadcast receiver for bond state changes.
+        val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        context.registerReceiver(bondReceiver, filter)
         Log.i(TAG, "start: beginning duty-cycled scan")
         startDutyCycledScan()
     }
@@ -107,6 +142,8 @@ class BleCentralService(private val context: Context) {
         gatt = null
         connState = ConnState.DISCONNECTED
         subscribedChars.clear()
+        bondState = BluetoothDevice.BOND_NONE
+        try { context.unregisterReceiver(bondReceiver) } catch (_: Exception) {}
         handler.post { onConnState?.invoke(ConnState.DISCONNECTED) }
     }
 
@@ -141,6 +178,21 @@ class BleCentralService(private val context: Context) {
 
     private fun startDutyCycledScan() {
         handler.removeCallbacks(scanRunnable)
+        // Check for already-bonded iPhone before scanning. If we find one,
+        // connect directly — this makes reconnection instant after initial
+        // pairing.
+        val adapter = bluetoothAdapter
+        if (adapter != null) {
+            val bonded = adapter.bondedDevices
+            for (device in bonded) {
+                val uuids = device.uuids
+                if (uuids != null && uuids.any { it.uuid == Uuids.service }) {
+                    Log.i(TAG, "Found bonded iPhone ${device.address} — connecting directly")
+                    connect(device)
+                    return
+                }
+            }
+        }
         scanRunnable.run()
     }
 
@@ -199,6 +251,12 @@ class BleCentralService(private val context: Context) {
 
     private fun connect(device: BluetoothDevice) {
         Log.i(TAG, "Connecting to ${device.address}...")
+        bondState = device.bondState
+        if (bondState == BluetoothDevice.BOND_BONDED) {
+            Log.i(TAG, "Already bonded to iPhone — reconnecting with encryption")
+        } else {
+            Log.i(TAG, "Not bonded — will trigger Pair dialog on encrypted char access")
+        }
         setConn(ConnState.CONNECTING)
         // autoConnect=false: we initiate the connection immediately.
         gatt = device.connectGatt(context, false, gattCallback)
@@ -231,6 +289,27 @@ class BleCentralService(private val context: Context) {
             gatt.requestMtu(mtu)
         } catch (e: Exception) {
             Log.e(TAG, "requestMtu failed", e)
+            false
+        }
+    }
+
+    // ---- Create bond (pairing fallback) -----------------------------------
+    //
+    // If encrypted characteristic access fails, the Android Bluetooth stack
+    // should auto-initiate pairing. This method provides a manual fallback
+    // that can be called from the plugin.
+
+    fun createBond(): Boolean {
+        val device = gatt?.device ?: return false
+        if (device.bondState == BluetoothDevice.BOND_BONDED) {
+            Log.i(TAG, "createBond: already bonded")
+            return true
+        }
+        Log.i(TAG, "createBond: initiating pairing with ${device.address}")
+        return try {
+            device.createBond()
+        } catch (e: Exception) {
+            Log.e(TAG, "createBond failed", e)
             false
         }
     }
