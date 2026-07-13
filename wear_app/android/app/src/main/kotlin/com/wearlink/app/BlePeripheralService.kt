@@ -422,29 +422,26 @@ class BlePeripheralService : Service() {
 
     /** Return permissions matching the characteristic's properties.
      *
-     *  FE10 (DeviceInfo) is PERMISSION_READ_ENCRYPTED — this is the bonding
-     *  trigger. The iPhone is paired to the watch in native Bluetooth Settings
-     *  (a classic BR/EDR bond). When the iOS app's CoreBluetooth connect() then
-     *  reads FE10, Bluedroid returns GATT_INSUFFICIENT_AUTHENTICATION, and iOS
-     *  derives a cross-transport LE key from the existing classic bond (no extra
-     *  pair dialog needed) — making the BLE GATT connection ENCRYPTED so it
-     *  actually completes instead of hanging on an unencrypted link to a bonded
-     *  device. This is how the app "uses" the settings-established pairing.
+     *  ALL characteristics are UNENCRYPTED (PERMISSION_READ / PERMISSION_WRITE).
+     *  This reverts the Phase 18 encrypted-FE10 experiment: marking FE10
+     *  (DeviceInfo) PERMISSION_READ_ENCRYPTED triggered INSUFFICIENT_AUTH on
+     *  the iPhone's FE10 read, iOS dropped the link to re-pair, and the partial
+     *  handshake left a stale bond — subsequent connect() hung waiting for
+     *  encryption that never settled (Phase 18 fix-3, decisive). The
+     *  unencrypted baseline is what proved a stable connect.
      *
-     *  All OTHER chars stay UNENCRYPTED (PERMISSION_READ / PERMISSION_WRITE) so
-     *  health/call/music/notify work even if the bond step is skipped — graceful
-     *  degradation, only DeviceInfo (name) is gated. The CCCD descriptor
-     *  (setupService) is PERMISSION_WRITE (unencrypted) so notify subscriptions
-     *  work without re-pairing. Do NOT use PERMISSION_*_ENCRYPTED_MITM (forces
-     *  6-digit passkey). */
+     *  Bonding is re-attempted in Phase 20.5 ONLY after the unencrypted link is
+     *  rock-solid, and is gated on a prior native Bluetooth Settings classic
+     *  bond so the encrypted FE10 read uses cross-transport key derivation
+     *  instead of a fresh LE pair. Do NOT use PERMISSION_*_ENCRYPTED_MITM
+     *  (forces a 6-digit passkey). The CCCD descriptor (setupService) stays
+     *  PERMISSION_WRITE (unencrypted) so notify subscriptions work without
+     *  re-pairing. */
     private fun permsFor(uuid: UUID): Int {
         val props = propsFor(uuid)
         var perms = 0
         if (props and BluetoothGattCharacteristic.PROPERTY_READ != 0) {
-            perms = if (uuid == Uuids.deviceInfo)
-                BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED
-            else
-                BluetoothGattCharacteristic.PERMISSION_READ
+            perms = BluetoothGattCharacteristic.PERMISSION_READ
         }
         if (props and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) {
             perms = perms or BluetoothGattCharacteristic.PERMISSION_WRITE

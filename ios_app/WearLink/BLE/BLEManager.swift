@@ -369,7 +369,9 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
         Task { @MainActor in
             log(.error, "Failed to connect to watch: \(error?.localizedDescription ?? "unknown")")
             state = .disconnected(error)
-            beginScanCycle()
+            // Reconnect via the native-Settings-known peripheral first (the watch
+            // may still be retrievable by its stored UUID), then fall back to scan.
+            startScanning()
         }
     }
 
@@ -381,9 +383,10 @@ final class BLEManager: NSObject, CBCentralManagerDelegate {
             gatt = nil
             healthManager?.clear()
             state = .disconnected(error)
-            log(.warning, "Disconnected from watch: \(error?.localizedDescription ?? "clean") — resuming scan")
-            // Re-enter scan cycle after a brief rest.
-            beginScanCycle()
+            log(.warning, "Disconnected from watch: \(error?.localizedDescription ?? "clean") — reconnecting via known peripheral then scan")
+            // Reconnect via the stored/native-Settings peripheral first so a bonded
+            // watch is re-claimed without a noisy fresh scan; scan is the fallback.
+            startScanning()
         }
     }
 
