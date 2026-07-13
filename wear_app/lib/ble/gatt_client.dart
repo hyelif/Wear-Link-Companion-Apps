@@ -45,13 +45,22 @@ class GattClient {
   /// Fires on native start/operation failure (advertiser/GATT errors).
   void Function(String msg)? onError;
 
+  bool _started = false;
+
   /// Call once at startup. Wires the native event stream into the codec.
+  /// Idempotent: subsequent calls are no-ops (prevents FGS thrash if the
+  /// Flutter engine re-attaches and main() re-runs).
   void start({
     void Function(String uuid, Uint8List payload)? onFrame,
     void Function(String state)? onConn,
     void Function(int mtu)? onMtu,
     void Function(String msg)? onError,
   }) {
+    if (_started) {
+      print('GattClient.start: already started — skip (idempotent guard)');
+      return;
+    }
+    _started = true;
     this.onFrame = onFrame;
     this.onConn = onConn;
     this.onMtu = onMtu;
@@ -65,10 +74,15 @@ class GattClient {
         final m = event.mtu;
         if (m != null && m > 0) {
           _negotiatedMtu = m;
-          onMtu?.call(m);
+          // this. prefix: the onMtu PARAMETER shadows the field, so bare
+          // onMtu would read the (possibly null) param captured at start()
+          // time and never see a late field assignment. onFrame/onConn route
+          // through methods that read the field; onMtu/onError are inline, so
+          // they must read the field explicitly to stay consistent.
+          this.onMtu?.call(m);
         }
       } else if (event.type == 'error') {
-        onError?.call(event.errorMsg ?? 'unknown BLE error');
+        this.onError?.call(event.errorMsg ?? 'unknown BLE error');
       }
     });
     channel.start();
@@ -77,13 +91,27 @@ class GattClient {
 
   /// Hard restart of the native BLE engine. Used by Quick Sync when the
   /// foreground service did not auto-start or advertising stopped.
+  ///
+  /// Cooldown: ignores calls within 2s of the last restart to prevent FGS
+  /// thrashing (onDestroy/onCreate loop) when the button is pressed rapidly
+  /// or the system re-triggers initialization. The 2s window covers the async
+  /// stopService → onCreate handoff so the GATT server is not torn down mid-
+  /// connection.
+  DateTime? _lastRestart;
   Future<void> restart() async {
+    final now = DateTime.now();
+    if (_lastRestart != null && now.difference(_lastRestart!).inMilliseconds < 2000) {
+      print('GattClient.restart: cooldown active — skipping (last was ${now.difference(_lastRestart!).inMilliseconds}ms ago)');
+      return;
+    }
+    _lastRestart = now;
     await channel.stop();
     await channel.start();
     await channel.advertiseStart();
   }
 
   Future<void> stop() async {
+    _started = false;
     channel.advertiseStop();
     channel.stop();
     channel.dispose();
