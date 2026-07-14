@@ -14,7 +14,7 @@ iPhone scans, connects, bonds (LE Secure Connections), and subscribes.
 | `0xFE10` | DeviceInfo | watch→phone | read | `DeviceInfo` |
 | `0xFE20` | HealthStream | watch→phone | **notify** | `HealthFrame` (batched) |
 | `0xFE21` | HealthControl | phone→watch | write | `HealthControl` |
-| `0xFE30` | CallEvent | phone→watch | write + notify | `CallEvent` |
+| `0xFE30` | CallEvent | phone→watch | notify | `CallEvent` |
 | `0xFE31` | CallAction | watch→phone | write | `CallAction` |
 | `0xFE40` | Notification | phone→watch | write | `Notification` |
 | `0xFE41` | NotifAction | watch→phone | write | `NotifAction` |
@@ -26,6 +26,14 @@ iPhone scans, connects, bonds (LE Secure Connections), and subscribes.
 - "phone→watch" = iPhone **writes** to that characteristic on the watch.
 - "watch→phone" = iPhone **subscribes (notify)** to that characteristic.
 - Bidirectional = write + notify both enabled.
+
+> **Bridge model note:** In the current architecture the watch is the BLE central
+> (GATT client) and the iPhone is the peripheral (GATT server). "phone→watch"
+> characteristics (CallEvent, Notification, MusicNowPlaying) are notify-capable
+> on the iPhone; the watch subscribes to receive them. "watch→phone"
+> characteristics (CallAction, NotifAction, MusicCommand) are write-capable on
+> the iPhone; the watch writes to them. The direction labels remain
+> "phone→watch" / "watch→phone" to describe data flow, not GATT role.
 
 ## UUID strategy
 16-bit handles above are placeholders for readability. Before ship, derive

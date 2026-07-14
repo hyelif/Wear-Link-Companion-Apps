@@ -37,6 +37,14 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
     private let maxLogEntries = 300
 
     /// Append a milestone to both os_log and the in-app buffer.
+    ///
+    /// NOTE: Feature controllers (CallController, NotificationForwarder,
+    /// MusicController) use `print(...)` for their own logging rather than
+    /// this structured `log()` method. This is a deliberate style choice:
+    /// BLEManager owns the in-app log buffer for connection diagnostics,
+    /// while feature-level logs are transient debug output. If feature
+    /// controller logs are needed in the in-app buffer, they should be
+    /// migrated to use this method.
     func log(_ level: BLELogLevel = .info, _ text: String) {
         let entry = BLELogEntry(date: Date(), level: level, text: text)
         logEntries.append(entry)
@@ -155,6 +163,9 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
         // write arrives they are set). MusicController and HealthManager
         // self-register on .bleDidReconnect, so we do not register those here.
         registerInboundHandlers()
+        // Populate cachedDeviceInfo with real battery/OS values immediately,
+        // rather than leaving batteryPercent=0 until the peripheral powers on.
+        refreshDeviceInfo()
         log(.info, "BLEManager init — waiting for CBPeripheralManager state (Bridge mode: iPhone is GATT server)")
     }
 
@@ -470,14 +481,14 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
                     return
                 }
                 if uuid == WearLinkUUID.linkControl {
-                    handleLinkControl(frame.payload)
+                    await handleLinkControl(frame.payload)
                     p.respond(to: request, withResult: .success)
                     return
                 }
                 let reassembler = reassemblers[uuid] ?? Reassembler()
                 reassemblers[uuid] = reassembler
                 if let full = reassembler.add(frame) {
-                    dispatchInbound(uuid: uuid, payload: full)
+                    await dispatchInbound(uuid: uuid, payload: full)
                 }
                 p.respond(to: request, withResult: .success)
         }
@@ -485,7 +496,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
 
     // MARK: - Inbound dispatch
 
-    private func dispatchInbound(uuid: CBUUID, payload: Data) {
+    private func dispatchInbound(uuid: CBUUID, payload: Data) async {
         // FE21 HealthControl is handled here (no feature controller self-
         // registers for it); everything else is fed to the gatt façade's
         // per-UUID onPayload handlers (set by BLEManager for callAction /
@@ -503,17 +514,17 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
             if let a = ProtoCodec.decodeCallAction(from: payload),
                isReplay(uuid: uuid, nonce: a.nonce, callId: a.callId, notifId: "") { return }
             gatt?.onPayload[uuid]?(payload)
-            sendLinkControlAck(seq: 0)
+            await sendLinkControlAck(seq: 0)
         case WearLinkUUID.notificationAction:
             if let a = ProtoCodec.decodeNotifAction(from: payload),
                isReplay(uuid: uuid, nonce: a.nonce, callId: "", notifId: a.notifId) { return }
             gatt?.onPayload[uuid]?(payload)
-            sendLinkControlAck(seq: 0)
+            await sendLinkControlAck(seq: 0)
         case WearLinkUUID.musicCommand:
             if let c = ProtoCodec.decodeMusicCommand(from: payload),
                isReplay(uuid: uuid, nonce: c.nonce, callId: "", notifId: "") { return }
             gatt?.onPayload[uuid]?(payload)
-            sendLinkControlAck(seq: 0)
+            await sendLinkControlAck(seq: 0)
         default:
             gatt?.onPayload[uuid]?(payload)
         }
@@ -541,7 +552,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
 
     // MARK: - LinkControl (heartbeat / ack)
 
-    private func handleLinkControl(_ payload: Data) {
+    private func handleLinkControl(_ payload: Data) async {
         guard let lc = ProtoCodec.decodeLinkControl(from: payload) else { return }
         switch lc.kind {
         case .heartbeat:
@@ -549,18 +560,18 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
             let ack = LinkControl(kind: .ack, seq: lc.seq,
                 timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
                 payload: Data())
-            sendNotification(WearLinkUUID.linkControl, payload: ProtoCodec.encodeLinkControl(ack))
+            await sendNotification(WearLinkUUID.linkControl, payload: ProtoCodec.encodeLinkControl(ack))
         case .ack, .nack, .kindUnspecified, .reconnectToken:
             // Inbound ACK/NACK for our heartbeats — liveness proof only.
             break
         }
     }
 
-    private func sendLinkControlAck(seq: UInt32) {
+    private func sendLinkControlAck(seq: UInt32) async {
         let ack = LinkControl(kind: .ack, seq: seq,
             timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
             payload: Data())
-        sendNotification(WearLinkUUID.linkControl, payload: ProtoCodec.encodeLinkControl(ack))
+        await sendNotification(WearLinkUUID.linkControl, payload: ProtoCodec.encodeLinkControl(ack))
     }
 
     private func startHeartbeat() {
@@ -575,7 +586,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
                     timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
                     payload: Data()
                 )
-                self.sendNotification(WearLinkUUID.linkControl, payload: ProtoCodec.encodeLinkControl(lc))
+                await self.sendNotification(WearLinkUUID.linkControl, payload: ProtoCodec.encodeLinkControl(lc))
             }
         }
     }
@@ -600,7 +611,11 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
     /// and split into MTU-sized chunks (continuation flag set on all but last),
     /// mirroring the old GattClient.write chunking so the watch's Reassembler
     /// can reconstruct the full payload.
-    func sendNotification(_ uuid: CBUUID, payload: Data) {
+    ///
+    /// When `updateValue` returns false (queue full), the chunk is retried up to
+    /// 3 times with a 100 ms delay between attempts. If all retries fail the
+    /// chunk is dropped and the loop breaks to avoid an infinite stall.
+    func sendNotification(_ uuid: CBUUID, payload: Data) async {
         guard let char = characteristics[uuid] else { return }
         let centrals = Array(subscribedCentrals[uuid] ?? [])
         guard !centrals.isEmpty else { return }
@@ -620,10 +635,21 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
             let chunk = payload.subdata(in: offset..<end)
             let cont = end < payload.count
             let frame = PacketCodec.encode(seq: seq, continuation: cont, payload: chunk)
-            let ok = peripheral.updateValue(frame, for: char, onSubscribedCentrals: centrals)
+
+            var retries = 0
+            var ok = false
+            while retries < 3 {
+                ok = peripheral.updateValue(frame, for: char, onSubscribedCentrals: centrals)
+                if ok { break }
+                retries += 1
+                if retries < 3 {
+                    log(.warning, "Notification queue full on \(uuid.uuidString) — retry \(retries)/3")
+                    try? await Task.sleep(nanoseconds: 100_000_000) // 100 ms
+                }
+            }
+
             if !ok {
-                log(.warning, "Notification queue full on \(uuid.uuidString) — chunk dropped (watch will miss data)")
-                // Back off: let the queue drain before retrying remaining chunks.
+                log(.error, "Notification queue full on \(uuid.uuidString) — dropped chunk after 3 retries (watch will miss data)")
                 break
             }
             offset = end
@@ -644,13 +670,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
     /// Refresh cached DeviceInfo from the host iPhone (battery + OS version).
     private func refreshDeviceInfo() {
         UIDevice.current.isBatteryMonitoringEnabled = true
-        var battery: UInt32 = 0
-        switch UIDevice.current.batteryState {
-        case .unknown, .unplugged:
-            battery = UInt32(max(0, min(100, Int(UIDevice.current.batteryLevel * 100))))
-        default:
-            battery = UInt32(max(0, min(100, Int(UIDevice.current.batteryLevel * 100))))
-        }
+        let battery = UInt32(max(0, min(100, Int(UIDevice.current.batteryLevel * 100))))
         cachedDeviceInfo = DeviceInfo(
             model: UIDevice.current.model,
             firmware: UIDevice.current.systemVersion,
@@ -677,7 +697,7 @@ final class GattNotifier {
     /// Frame `payload` and notify all centrals subscribed to `uuid`. In bridge
     /// mode this is how the iPhone pushes data to the watch.
     @MainActor
-    func write(_ payload: Data, to uuid: CBUUID, type: CBCharacteristicWriteType = .withResponse) {
-        owner?.sendNotification(uuid, payload: payload)
+    func write(_ payload: Data, to uuid: CBUUID, type: CBCharacteristicWriteType = .withResponse) async {
+        await owner?.sendNotification(uuid, payload: payload)
     }
 }

@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wear_app/ble/gatt_client.dart';
 import 'package:wear_app/ble/packet_codec.dart';
+import 'package:wear_app/platform/ble_frame_event.dart';
 import 'package:wear_app/platform/ble_peripheral_channel.dart';
 
 /// Stub BlePeripheralChannel: captures the event callback for injection,

@@ -121,7 +121,9 @@ final class NotificationForwarder: NSObject {
             replyChoices: replyChoices
         )
         let payload = ProtoCodec.encodeWearNotification(wearNotif)
-        ble.gatt?.write(payload, to: WearLinkUUID.notification)
+        Task { @MainActor in
+            await ble.gatt?.write(payload, to: WearLinkUUID.notification)
+        }
 
         // Record in the in-memory list for the UI.
         let item = ForwardedNotificationItem(
@@ -207,7 +209,9 @@ final class NotificationForwarder: NSObject {
             replyChoices: replyChoices
         )
         let payload = ProtoCodec.encodeWearNotification(wearNotif)
-        ble.gatt?.write(payload, to: WearLinkUUID.notification)
+        Task { @MainActor in
+            await ble.gatt?.write(payload, to: WearLinkUUID.notification)
+        }
 
         // Clear the pending flag and all associated keys only AFTER the BLE
         // write has been issued, so a write failure does not lose the data.
@@ -262,6 +266,15 @@ final class NotificationForwarder: NSObject {
 /// The observer pointer is registered via `Unmanaged.passUnretained(self).toOpaque()`
 /// in `setupNotificationBridge()` and removed in `deinit`, so the pointer is
 /// valid for the lifetime of the NotificationForwarder instance.
+///
+/// SAFETY: Unmanaged.fromOpaque(observer).takeUnretainedValue() is safe here
+/// because the observer pointer is registered with passUnretained (no retain)
+/// and is explicitly removed in deinit via
+/// CFNotificationCenterRemoveEveryObserver. The pointer is never used after
+/// deinit, so there is no use-after-free risk. The callback is invoked on a
+/// Darwin notification center queue, not concurrently with deinit, because
+/// CFNotificationCenterRemoveEveryObserver synchronously unregisters before
+/// returning.
 private let darwinNotificationCallback: CFNotificationCallback = { _, observer, _, _, _ in
     guard let observer else { return }
     let forwarder = Unmanaged<NotificationForwarder>.fromOpaque(observer).takeUnretainedValue()

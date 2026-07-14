@@ -20,8 +20,8 @@ class CallInfo {
 /// Call state store. Receives [CallEvent] frames from the BLE inbound stream
 /// and exposes reactive signals for the UI.
 ///
-/// BLE frames arrive via [GattClient.inbound] on [GattUuid.callEvent]. Call
-/// actions are sent back through [GattClient.send] on [GattUuid.callAction].
+/// BLE frames arrive via [GattCentralClient.inbound] on [GattCentralUuid.callEvent]. Call
+/// actions are sent back through [GattCentralClient.send] on [GattCentralUuid.callAction].
 ///
 /// Usage:
 /// ```dart

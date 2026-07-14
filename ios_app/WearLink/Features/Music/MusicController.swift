@@ -36,6 +36,12 @@ final class MusicController: NSObject {
     private let ble: BLEManager
     nonisolated(unsafe) private var updateTimer: Timer?
     nonisolated(unsafe) private var lastPositionUpdate: Date?
+    // SAFETY: updateTimer and lastPositionUpdate are only accessed from
+    // @MainActor methods (startPositionUpdates, stopPositionUpdates,
+    // publishNowPlaying). The nonisolated(unsafe) annotation is needed
+    // because Timer and Date are not Sendable, but the @MainActor isolation
+    // of the enclosing class guarantees all accesses happen on the main
+    // actor, making this safe.
 
     /// Weak reference to the `GattNotifier` façade we last registered the command
     /// handler on. Used to detect reconnections and avoid redundant or
@@ -45,6 +51,10 @@ final class MusicController: NSObject {
     /// Opaque handler references returned by `MPRemoteCommand.addTarget(handler:)`,
     /// retained so they can be removed in `deinit`.
     nonisolated(unsafe) private var remoteCommandHandlers: [Any] = []
+    // SAFETY: remoteCommandHandlers is only written in setupRemoteCommands()
+    // and read in deinit, both on the main actor. The nonisolated(unsafe)
+    // annotation is needed because Any is not Sendable, but @MainActor
+    // isolation guarantees single-threaded access.
 
     private(set) var nowPlaying = MusicNowPlaying(
         title: "", artist: "", album: "", art: Data(),
@@ -301,7 +311,9 @@ final class MusicController: NSObject {
     /// it to the watch via the `musicNowPlaying` notify characteristic.
     private func sendToWatch(_ info: MusicNowPlaying) {
         let payload = ProtoCodec.encodeMusicNowPlaying(info)
-        ble.gatt?.write(payload, to: WearLinkUUID.musicNowPlaying)
+        Task { @MainActor in
+            await ble.gatt?.write(payload, to: WearLinkUUID.musicNowPlaying)
+        }
     }
 
     // MARK: - Periodic position updates
@@ -328,7 +340,7 @@ final class MusicController: NSObject {
 
                 // Push the updated position to the watch.
                 let payload = ProtoCodec.encodeMusicNowPlaying(self.nowPlaying)
-                self.ble.gatt?.write(payload, to: WearLinkUUID.musicNowPlaying)
+                await self.ble.gatt?.write(payload, to: WearLinkUUID.musicNowPlaying)
             }
         }
     }

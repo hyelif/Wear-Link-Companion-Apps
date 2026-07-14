@@ -4,7 +4,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
-import 'ble_peripheral_channel.dart';
+import 'ble_frame_event.dart';
 
 class BleCentralChannel {
   static const MethodChannel _m = MethodChannel('wearlink/ble_central');
@@ -23,6 +23,11 @@ class BleCentralChannel {
   /// Returns true when the write was acknowledged by the remote GATT server.
   Future<bool> write(String uuid, Uint8List data) async =>
       (await _m.invokeMethod('write', {'uuid': uuid, 'data': data})) as bool;
+
+  /// Read the current value of the characteristic identified by [uuid].
+  /// The result arrives asynchronously via the event stream as a frame event.
+  Future<bool> read(String uuid) async =>
+      (await _m.invokeMethod('read', {'uuid': uuid})) as bool;
 
   /// Request an ATT MTU of [mtu] bytes from the remote peripheral.
   /// Returns the negotiated MTU (may be lower than requested).

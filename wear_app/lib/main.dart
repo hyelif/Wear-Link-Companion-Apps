@@ -84,6 +84,10 @@ Future<void> main() async {
           _handleHealthControl(payload);
           return;
         }
+        if (uuid == GattCentralUuid.deviceInfo) {
+          _handleDeviceInfo(payload);
+          return;
+        }
         callSignal.updateFromFrame(uuid, payload);
         notificationSignal.updateFromFrame(uuid, payload);
         musicSignal.updateFromFrame(uuid, payload);
@@ -168,6 +172,18 @@ void _handleHealthControl(Uint8List payload) async {
   }
 }
 
+/// Parse and log an inbound DeviceInfo (FE10) response from the iPhone.
+/// Called when the async read of FE10 completes.
+void _handleDeviceInfo(Uint8List payload) {
+  try {
+    final info = DeviceInfo.fromBuffer(payload);
+    debugPrint('DeviceInfo: model=${info.model}, '
+        'firmware=${info.firmware}, battery=${info.batteryPercent}%');
+  } catch (_) {
+    // Malformed DeviceInfo -- skip; retried on the next health tick.
+  }
+}
+
 /// Start (or restart) the health broadcast timer at the current interval.
 void _startHealthTimer() {
   _healthTimer?.cancel();
@@ -193,16 +209,12 @@ void _flushHealth() {
   gattCentral.send(GattCentralUuid.healthStream, Uint8List.fromList(frame.writeToBuffer()));
 }
 
-/// Build a framed DeviceInfo protobuf from native device facts and cache it on
-/// the Kotlin side for the next FE10 read. Called at startup and on each health
-/// timer tick so the battery reading stays fresh.
+/// Read FE10 (deviceInfo) from the iPhone. The result arrives asynchronously
+/// via the onFrame callback where it is parsed and logged. Called at startup
+/// and on each health timer tick so the battery reading stays fresh.
 Future<void> _refreshDeviceInfo() async {
   try {
-    final info = await bleCentralChannel.requestMtu(247);
-    // DeviceInfo is served by the peripheral; in central mode we read it
-    // from the remote device info characteristic instead of caching locally.
-    // For now, log the negotiated MTU as a connectivity check.
-    debugPrint('BLE MTU after request: $info');
+    await gattCentral.read(GattCentralUuid.deviceInfo);
   } catch (_) {
     // Native channel not ready yet -- retried on the next health tick.
   }

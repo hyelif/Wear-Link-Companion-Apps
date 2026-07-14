@@ -4,8 +4,10 @@
     <uses-feature android:name="android.hardware.type.watch" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
-    <!-- BLE peripheral (advertiser + GATT server) -->
+    <!-- BLE central (GATT client) -->
     <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
@@ -55,11 +57,6 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-
-        <service
-            android:name=".HealthServicesPlugin"
-            android:foregroundServiceType="health"
-            android:exported="false" />
     </application>
     <queries>
         <intent>

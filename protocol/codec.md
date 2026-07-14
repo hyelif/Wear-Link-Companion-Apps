@@ -9,7 +9,7 @@ Both apps MUST encode/decode identically. Reference implementations:
 ```
  offset  field        size  notes
  0       seq         u16   monotonic per-direction counter; ack/dedup key
- 2       flags       u8    bit0 = continuation (more chunks for same seq)
+ 2       flags       u8    bit0 = continuation (more chunks for same seq); bits 1-7 reserved
  3       len         u16   payload byte count (excludes header + crc)
  5       payload     len   protobuf message bytes (or chunk of one)
  5+len   crc8        u8    CRC-8/SMBUS-style (poly 0x07) over bytes [0 .. 5+len-1]
@@ -49,6 +49,7 @@ command). Receiver tracks last N nonces per source; drops duplicates. Prevents
 a retransmitted accept/reject from firing twice.
 
 ## Compression
-Health batches MAY be gzip-compressed before chunking (flag bit1 reserved:
-`flags.compressed`). Receiver decompresses after reassembly, before protobuf
-decode. Music/notification payloads are small enough to skip compression.
+Health batches MAY be gzip-compressed before chunking. Compression is indicated
+by the `HealthFrame.compressed` proto field, not by frame header flags. Receiver
+decompresses after reassembly, before protobuf decode. Music/notification
+payloads are small enough to skip compression.

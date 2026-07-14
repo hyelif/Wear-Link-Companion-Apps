@@ -116,6 +116,10 @@ class GattCentralClient {
     _inbound.clear();
   }
 
+  /// Initiate a read of the characteristic identified by [uuid] on the remote
+  /// GATT server. The result arrives asynchronously via the onFrame callback.
+  Future<bool> read(String uuid) async => channel.read(uuid);
+
   /// Outbound: split a payload into framed chunks and write to the remote.
   /// [uuid] must be a writable characteristic on the remote GATT server.
   /// Chunk size follows the negotiated ATT MTU so frames never exceed the

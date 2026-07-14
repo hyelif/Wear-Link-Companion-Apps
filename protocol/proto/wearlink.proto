@@ -25,11 +25,14 @@ message LinkControl {
     KIND_UNSPECIFIED = 0;
     HEARTBEAT = 1;          // payload: timestamp_ms
     ACK = 2;                // payload: acked_seq
-    NACK = 3;               // payload: naked_seq
+    NACK = 3;               // payload: nacked_seq
     RECONNECT_TOKEN = 4;    // payload: opaque bytes
   }
   Kind kind = 1;
   uint32 seq = 2;           // seq being acked/nacked (0 for heartbeat)
+                              // NOTE: effective wire range is 0-65535 (u16).
+                              // Values above 65535 are truncated by the frame
+                              // header seq field; keep within u16 range.
   uint64 timestamp_ms = 3;
   bytes  payload = 4;
 }

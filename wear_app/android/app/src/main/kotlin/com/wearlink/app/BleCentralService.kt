@@ -338,6 +338,24 @@ class BleCentralService(private val context: Context) {
         }
     }
 
+    // ---- Read characteristic ----------------------------------------------
+
+    /// Read the current value of a characteristic on the iPhone's GATT server.
+    /// The result arrives asynchronously via onCharacteristicRead and is
+    /// forwarded to Dart through the onFrame callback.
+    /// Returns true if the read was initiated successfully.
+    fun read(uuid: UUID): Boolean {
+        val gatt = gatt ?: return false
+        val svc = gatt.getService(Uuids.service) ?: return false
+        val c = svc.getCharacteristic(uuid) ?: return false
+        return try {
+            gatt.readCharacteristic(c)
+        } catch (e: Exception) {
+            Log.e(TAG, "read failed for $uuid", e)
+            false
+        }
+    }
+
     // ---- Request MTU ------------------------------------------------------
 
     /// Request a larger ATT MTU for better throughput.
@@ -512,8 +530,7 @@ class BleCentralService(private val context: Context) {
             Log.d(TAG, "subscribeToCharacteristic: $uuid already subscribed — skip")
             return
         }
-        val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
-        val cccd = c.getDescriptor(cccdUuid)
+        val cccd = c.getDescriptor(Uuids.cccd)
         if (cccd != null) {
             gatt.setCharacteristicNotification(c, true)
             cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE

@@ -59,7 +59,7 @@ class AncsClient(private val context: Context) {
         val NOTIFICATION_SOURCE = UUID.fromString("9FBF120D-6301-42D9-8C58-25E699A21DBD")
         val CONTROL_POINT = UUID.fromString("69D1D8F3-45E1-49A8-9821-9BBDFDAAD9D9")
         val DATA_SOURCE = UUID.fromString("22EAC6E9-24D6-4BB5-BE44-B36ACE7C7BFB")
-        val CCCD = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
+        val CCCD = Uuids.cccd
         private const val TAG = "AncsClient"
     }
 
@@ -339,6 +339,12 @@ class AncsClient(private val context: Context) {
         pendingNotifications[uid] = notif
 
         // If we got at least title or body, emit the notification
+        // LIMITATION: This fires as soon as title or body is non-empty, which
+        // may happen before all attributes (e.g. appName) have arrived from
+        // the Data Source. The watch UI may briefly show an incomplete
+        // notification until the remaining attributes are received in a
+        // subsequent Data Source chunk. A production implementation should
+        // wait for a complete set of expected attributes before emitting.
         if (notif.title.isNotEmpty() || notif.body.isNotEmpty()) {
             handler.post { onNotification?.invoke(notif) }
             pendingNotifications.remove(uid)

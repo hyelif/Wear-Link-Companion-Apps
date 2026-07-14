@@ -39,5 +39,9 @@ class MainActivity : FlutterActivity() {
         if (::bleCentralPlugin.isInitialized) {
             bleCentralPlugin.onPermissionResult(requestCode, grantResults)
         }
+        // NOTE: AncsPlugin does not implement onPermissionResult or ActivityAware,
+        // so ANCS runtime permissions (if any are added later) are not forwarded.
+        // If ANCS ever needs runtime permissions, add ActivityAware to AncsPlugin
+        // and wire onPermissionResult here.
     }
 }

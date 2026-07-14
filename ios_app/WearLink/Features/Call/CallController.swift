@@ -53,6 +53,16 @@ final class CallController: NSObject {
 
 extension CallController: CXCallObserverDelegate {
     nonisolated func callObserver(_ observer: CXCallObserver, callChanged call: CXCall) {
+        // When an incoming call connects (user accepts on phone), clear
+        // hasIncomingCall so the watch UI reflects the active call state.
+        if !call.isOutgoing, call.hasConnected {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.hasIncomingCall = false
+            }
+            return
+        }
+
         // Only handle incoming calls that haven't connected or ended yet.
         guard !call.isOutgoing, !call.hasConnected, !call.hasEnded else { return }
 
@@ -77,7 +87,7 @@ extension CallController: CXCallObserverDelegate {
             )
 
             let payload = ProtoCodec.encodeCallEvent(event)
-            self.ble.gatt?.write(payload, to: WearLinkUUID.callEvent)
+            await self.ble.gatt?.write(payload, to: WearLinkUUID.callEvent)
         }
     }
 }

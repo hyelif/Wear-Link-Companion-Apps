@@ -116,6 +116,10 @@ class BleCentralPlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamHa
                     val data = call.argument<ByteArray>("data") ?: ByteArray(0)
                     result.success(central.write(uuid, data))
                 }
+                "read" -> {
+                    val uuid = UUID.fromString(call.argument<String>("uuid"))
+                    result.success(central.read(uuid))
+                }
                 "requestMtu" -> {
                     val mtu = call.argument<Int>("mtu") ?: 247
                     result.success(central.requestMtu(mtu))
@@ -203,6 +207,10 @@ class BleCentralPlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamHa
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
+        // Clear pending permission result so it doesn't dangle across the
+        // config change — the new activity will need a fresh request.
+        pendingPermissionResult?.success(hasBlePerms())
+        pendingPermissionResult = null
         onDetachedFromActivity()
     }
 
