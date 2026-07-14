@@ -84,8 +84,9 @@ extension CallController: CXCallObserverDelegate {
     }
 }
 
-    // MARK: - Sending call events to the watch
+// MARK: - Sending call events to the watch
 
+extension CallController {
     /// Create a `CallEvent` proto and push it to the watch via `BLEManager.sendCallEvent()`.
     /// Called when an incoming call is detected by `CXCallObserver`.
     func sendCallEvent(callId: String, caller: String, hasVideo: Bool) {
@@ -97,6 +98,7 @@ extension CallController: CXCallObserverDelegate {
         )
         ble.sendCallEvent(event)
     }
+}
 
 // MARK: - Watch action handling
 
