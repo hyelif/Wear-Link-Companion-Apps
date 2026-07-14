@@ -419,6 +419,23 @@ class BleCentralService(private val context: Context) {
         }
     }
 
+    /// Forget the paired iPhone: clear saved MAC address, disconnect, and stop
+    /// scanning so the watch does not auto-reconnect. Call this when the user
+    /// taps "Forget Device" in the Connection dialog.
+    fun forgetDevice() {
+        Log.i(TAG, "forgetDevice: clearing saved iPhone address")
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().remove(KEY_IPHONE_ADDR).apply()
+        gatt?.disconnect()
+        gatt?.close()
+        gatt = null
+        connState = ConnState.DISCONNECTED
+        subscribedChars.clear()
+        stopDutyCycledScan()
+        handler.post { onConnState?.invoke(ConnState.DISCONNECTED, null) }
+        Log.i(TAG, "forgetDevice: done — watch will not auto-reconnect")
+    }
+
     // ---- GATT callbacks ---------------------------------------------------
 
     private val gattCallback = object : BluetoothGattCallback() {

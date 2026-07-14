@@ -472,68 +472,101 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               borderRadius: BorderRadius.circular(16),
               side: BorderSide(color: stateColor.withValues(alpha: 0.3)),
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [stateColor.withValues(alpha: 0.2), Colors.transparent],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [stateColor.withValues(alpha: 0.2), Colors.transparent],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      shape: BoxShape.circle,
                     ),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    conn == ConnState.connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-                    size: 24,
-                    color: stateColor,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    stateText,
-                    style: TextStyle(
+                    child: Icon(
+                      conn == ConnState.connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+                      size: 24,
                       color: stateColor,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                ),
-                if (name != null && name.isNotEmpty) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 12),
                   FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
-                      name,
+                      stateText,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 14,
+                        color: stateColor,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  if (name != null && name.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        name,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.6),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF14E5B3),
+                        foregroundColor: const Color(0xFF00382A),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text('Close'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Forget Device button
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () {
+                        bleCentralChannel.forgetDevice();
+                        gattCentral.reset();
+                        bleSignal.setConn(ConnState.disconnected);
+                        bleSignal.setDeviceName(null);
+                        Navigator.pop(ctx);
+                        HapticFeedback.heavyImpact();
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFFFF5252),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(
+                            color: const Color(0xFFFF5252).withValues(alpha: 0.3),
+                          ),
+                        ),
+                      ),
+                      child: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Forget Device',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                        ),
                       ),
                     ),
                   ),
                 ],
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF14E5B3),
-                      foregroundColor: const Color(0xFF00382A),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 0,
-                    ),
-                    child: const Text('Close'),
-                  ),
-                ),
-              ],
+              ),
             ),
           );
         },
@@ -550,7 +583,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(color: const Color(0xFF14E5B3).withValues(alpha: 0.2)),
         ),
-        content: Column(
+        content: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
@@ -621,6 +655,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

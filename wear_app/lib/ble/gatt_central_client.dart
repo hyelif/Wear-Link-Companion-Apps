@@ -116,6 +116,15 @@ class GattCentralClient {
     _inbound.clear();
   }
 
+  /// Reset the started flag so start() can be called again. Does NOT dispose
+  /// the channel — use this after forgetDevice() to allow re-scanning.
+  void reset() {
+    _started = false;
+    _reassembler.clear();
+    _outSeq = 0;
+    _negotiatedMtu = 23;
+  }
+
   /// Initiate a read of the characteristic identified by [uuid] on the remote
   /// GATT server. The result arrives asynchronously via the onFrame callback.
   Future<bool> read(String uuid) async => channel.read(uuid);

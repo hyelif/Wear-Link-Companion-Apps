@@ -127,6 +127,10 @@ class BleCentralPlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamHa
                 "createBond" -> {
                     result.success(central.createBond())
                 }
+                "forgetDevice" -> {
+                    central.forgetDevice()
+                    result.success(true)
+                }
                 "requestPermissions" -> requestBlePermissions(result)
                 else -> result.notImplemented()
             }

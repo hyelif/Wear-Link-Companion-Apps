@@ -70,8 +70,9 @@ class _SyncScreenState extends State<SyncScreen> {
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          child: Column(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: SingleChildScrollView(
+            child: Column(
             children: [
               // Connection status card
               SignalBuilder(
@@ -265,6 +266,7 @@ class _SyncScreenState extends State<SyncScreen> {
                 ),
             ],
           ),
+        ),
         ),
       ),
     );

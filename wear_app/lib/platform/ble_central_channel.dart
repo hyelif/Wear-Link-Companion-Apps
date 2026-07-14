@@ -34,6 +34,9 @@ class BleCentralChannel {
   Future<int> requestMtu(int mtu) async =>
       (await _m.invokeMethod('requestMtu', {'mtu': mtu})) as int;
 
+  /// Forget the paired iPhone: clear saved MAC, disconnect, stop scanning.
+  Future<void> forgetDevice() async => _m.invokeMethod('forgetDevice');
+
   Stream<BleFrameEvent> events() {
     return _e.receiveBroadcastStream().map(
       (raw) => BleFrameEvent.fromMap(raw as Map<dynamic, dynamic>),
