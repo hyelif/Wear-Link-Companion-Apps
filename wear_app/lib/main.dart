@@ -5,10 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:signals/signals_flutter.dart';
 
 import 'package:wear_app/ble/gatt_central_client.dart';
-import 'package:wear_app/features/call/call_screen.dart';
-import 'package:wear_app/features/health/health_screen.dart';
-import 'package:wear_app/features/music/music_screen.dart';
-import 'package:wear_app/features/notification/notification_screen.dart';
+import 'package:wear_app/features/settings/health_types_screen.dart';
+import 'package:wear_app/features/settings/sync_screen.dart';
 import 'package:wear_app/platform/ble_central_channel.dart';
 import 'package:wear_app/platform/health_services_channel.dart';
 import 'package:wear_app/signals/ble_signal.dart';
@@ -40,6 +38,72 @@ bool _appResumed = true;
 /// Monotonic sequence for outbound HealthFrames (W9). Wraps at 2^32 so the phone
 /// can order/dedup frames; previously hardcoded 0 so dedup was non-functional.
 int _healthFrameSeq = 0;
+
+/// Health type toggle signals for the settings screen.
+/// Each represents whether the user wants that type pushed to iPhone.
+final heartRateEnabled = signal<bool>(true);
+final stepsEnabled = signal<bool>(true);
+final spo2Enabled = signal<bool>(false);
+final hrvEnabled = signal<bool>(false);
+final sleepEnabled = signal<bool>(true);
+final caloriesEnabled = signal<bool>(true);
+final distanceEnabled = signal<bool>(true);
+
+/// Timestamp (ms) of the last successful health sync.
+final lastSyncTimestamp = signal<int>(0);
+
+/// Build the list of HealthTypeOption for the settings screen.
+List<HealthTypeOption> get healthTypeOptions => [
+  HealthTypeOption(
+    label: 'Heart Rate',
+    subtitle: 'BPM readings',
+    icon: Icons.favorite,
+    protoType: HealthSample_Type.HEART_RATE_BPM,
+    enabled: heartRateEnabled,
+  ),
+  HealthTypeOption(
+    label: 'Steps',
+    subtitle: 'Step count',
+    icon: Icons.directions_walk,
+    protoType: HealthSample_Type.STEPS,
+    enabled: stepsEnabled,
+  ),
+  HealthTypeOption(
+    label: 'SpO2',
+    subtitle: 'Blood oxygen',
+    icon: Icons.water_drop,
+    protoType: HealthSample_Type.SPO2_PERCENT,
+    enabled: spo2Enabled,
+  ),
+  HealthTypeOption(
+    label: 'HRV',
+    subtitle: 'Heart rate variability',
+    icon: Icons.show_chart,
+    protoType: HealthSample_Type.HRV_MS,
+    enabled: hrvEnabled,
+  ),
+  HealthTypeOption(
+    label: 'Sleep',
+    subtitle: 'Sleep stages & duration',
+    icon: Icons.bedtime,
+    protoType: HealthSample_Type.SLEEP,
+    enabled: sleepEnabled,
+  ),
+  HealthTypeOption(
+    label: 'Calories',
+    subtitle: 'kcal burned',
+    icon: Icons.local_fire_department,
+    protoType: HealthSample_Type.CALORIES,
+    enabled: caloriesEnabled,
+  ),
+  HealthTypeOption(
+    label: 'Distance',
+    subtitle: 'Meters traveled',
+    icon: Icons.map,
+    protoType: HealthSample_Type.DISTANCE_METERS,
+    enabled: distanceEnabled,
+  ),
+];
 
 Future<void> main() async {
   // Binding must be initialized before any platform-channel use; channel
@@ -194,10 +258,22 @@ void _startHealthTimer() {
 }
 
 /// Drain the health buffer and push a HealthFrame to the phone (FE20), filtered
-/// to the types the iPhone requested (if any). No-op when not connected or empty.
+/// to the types the user has enabled in settings AND the types the iPhone
+/// requested (if any). No-op when not connected or empty.
 void _flushHealth() {
   if (bleSignal.connection.value != ConnState.connected) return;
   var samples = healthSignal.drainBuffer();
+  // Filter by user-enabled health types (settings toggles).
+  final enabledTypes = <HealthSample_Type>{};
+  if (heartRateEnabled.value) enabledTypes.add(HealthSample_Type.HEART_RATE_BPM);
+  if (stepsEnabled.value) enabledTypes.add(HealthSample_Type.STEPS);
+  if (spo2Enabled.value) enabledTypes.add(HealthSample_Type.SPO2_PERCENT);
+  if (hrvEnabled.value) enabledTypes.add(HealthSample_Type.HRV_MS);
+  if (sleepEnabled.value) enabledTypes.add(HealthSample_Type.SLEEP);
+  if (caloriesEnabled.value) enabledTypes.add(HealthSample_Type.CALORIES);
+  if (distanceEnabled.value) enabledTypes.add(HealthSample_Type.DISTANCE_METERS);
+  samples = samples.where((s) => enabledTypes.contains(s.type)).toList();
+  // Also filter by iPhone-requested types (FE21 SET_TYPES).
   final types = _healthTypes;
   if (types != null && types.isNotEmpty) {
     samples = samples.where((s) => types.contains(s.type)).toList();
@@ -207,6 +283,7 @@ void _flushHealth() {
   _healthFrameSeq = (_healthFrameSeq + 1) & 0xFFFFFFFF;
   final frame = HealthFrame(sequence: seq, samples: samples, compressed: false);
   gattCentral.send(GattCentralUuid.healthStream, Uint8List.fromList(frame.writeToBuffer()));
+  lastSyncTimestamp.value = DateTime.now().millisecondsSinceEpoch;
 }
 
 /// Read FE10 (deviceInfo) from the iPhone. The result arrives asynchronously
@@ -263,25 +340,73 @@ class _WearLinkAppState extends State<WearLinkApp> with WidgetsBindingObserver {
         scaffoldBackgroundColor: const Color(0xFF050508),
         colorScheme: ColorScheme.dark(
           primary: const Color(0xFF14E5B3),
+          onPrimary: const Color(0xFF00382A),
+          primaryContainer: const Color(0xFF00513D),
+          onPrimaryContainer: const Color(0xFF6FFFE0),
           secondary: const Color(0xFF14E5B3),
+          onSecondary: const Color(0xFF00382A),
+          secondaryContainer: const Color(0xFF00513D),
+          onSecondaryContainer: const Color(0xFF6FFFE0),
           surface: const Color(0xFF0D0D1A),
+          onSurface: const Color(0xFFE0E0E0),
+          surfaceContainerHighest: const Color(0xFF1A1A2E),
+          onSurfaceVariant: const Color(0xFFB0B0B0),
+          outline: const Color(0xFF3A3A4A),
+          outlineVariant: const Color(0xFF2A2A3A),
+          error: const Color(0xFFFF5252),
+          onError: const Color(0xFF601410),
         ),
-        textTheme: const TextTheme(
-          displayLarge: TextStyle(fontSize: 36, fontWeight: FontWeight.bold),
-          displayMedium: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-          displaySmall: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-          headlineLarge: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-          headlineMedium: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          headlineSmall: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-          titleMedium: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          titleSmall: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-          bodyLarge: TextStyle(fontSize: 16),
-          bodyMedium: TextStyle(fontSize: 14),
-          bodySmall: TextStyle(fontSize: 12),
-          labelLarge: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-          labelMedium: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-          labelSmall: TextStyle(fontSize: 10, fontWeight: FontWeight.w500),
+        textTheme: TextTheme(
+          displayLarge: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: const Color(0xFFE0E0E0)),
+          displayMedium: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: const Color(0xFFE0E0E0)),
+          displaySmall: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: const Color(0xFFE0E0E0)),
+          headlineLarge: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: const Color(0xFFE0E0E0)),
+          headlineMedium: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: const Color(0xFFE0E0E0)),
+          headlineSmall: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: const Color(0xFFE0E0E0)),
+          titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: const Color(0xFFE0E0E0)),
+          titleMedium: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: const Color(0xFFE0E0E0)),
+          titleSmall: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: const Color(0xFFE0E0E0)),
+          bodyLarge: TextStyle(fontSize: 16, color: const Color(0xFFC0C0C0)),
+          bodyMedium: TextStyle(fontSize: 14, color: const Color(0xFFC0C0C0)),
+          bodySmall: TextStyle(fontSize: 12, color: const Color(0xFFA0A0A0)),
+          labelLarge: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: const Color(0xFFE0E0E0)),
+          labelMedium: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFFB0B0B0)),
+          labelSmall: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: const Color(0xFF909090)),
+        ),
+        cardTheme: CardThemeData(
+          color: const Color(0xFF0D0D1A),
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          margin: EdgeInsets.zero,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF14E5B3),
+            foregroundColor: const Color(0xFF00382A),
+            minimumSize: const Size(double.infinity, 48),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+        ),
+        iconButtonTheme: IconButtonThemeData(
+          style: IconButton.styleFrom(
+            minimumSize: const Size(34, 34),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+        switchTheme: SwitchThemeData(
+          thumbColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) return const Color(0xFF14E5B3);
+            return const Color(0xFF6B6B6B);
+          }),
+          trackColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) return const Color(0xFF14E5B3).withValues(alpha: 0.4);
+            return const Color(0xFF3A3A3A);
+          }),
+        ),
+        dividerTheme: const DividerThemeData(
+          color: Color(0xFF2A2A3A),
+          space: 12,
         ),
       ),
       home: const ConnectionScreen(),
@@ -289,10 +414,13 @@ class _WearLinkAppState extends State<WearLinkApp> with WidgetsBindingObserver {
   }
 }
 
-/// Dashboard / home screen for the watch.
-///
-/// Top: animated BLE connection status banner + Quick Sync button.
-/// Body: health stats card + scrollable list of feature cards.
+// =============================================================================
+// ConnectionScreen — configuration hub
+// =============================================================================
+
+/// Home screen for the watch. Acts as a configuration hub with subsystem
+/// navigation buttons. No live health stats — the watch is a config panel,
+/// not a data display.
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key});
 
@@ -307,7 +435,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   @override
   void initState() {
     super.initState();
-    // Haptic feedback on connection state changes (skip the initial value).
     _connDispose = bleSignal.connection.subscribe((_) {
       if (_firstConnValue) {
         _firstConnValue = false;
@@ -323,116 +450,260 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    // Detect round screen via shortest side; round watches are ~280-320 logical px.
-    final isRound = MediaQuery.of(context).size.shortestSide < 340;
-
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: SafeArea(
-        minimum: EdgeInsets.all(isRound ? 6 : 8),
-        child: Column(
-          children: [
-            // 1. Top row: connection status banner + Quick Sync button
-            Row(
+  void _showConnectionDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => SignalBuilder(
+        builder: (_) {
+          final conn = bleSignal.connection.value;
+          final name = bleSignal.deviceName.value;
+          final (stateColor, stateText) = switch (conn) {
+            ConnState.connected => (const Color(0xFF00E676), 'Connected'),
+            ConnState.connecting => (const Color(0xFFFFD600), 'Connecting...'),
+            ConnState.disconnected => (const Color(0xFFFF5252), 'Disconnected'),
+          };
+          return AlertDialog(
+            backgroundColor: const Color(0xFF0D0D1A),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: stateColor.withValues(alpha: 0.3)),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const Expanded(child: _ConnectionBanner()),
-                const SizedBox(width: 6),
-                const _QuickSyncButton(),
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [stateColor.withValues(alpha: 0.2), Colors.transparent],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    conn == ConnState.connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+                    size: 24,
+                    color: stateColor,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    stateText,
+                    style: TextStyle(
+                      color: stateColor,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (name != null && name.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      name,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF14E5B3),
+                      foregroundColor: const Color(0xFF00382A),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text('Close'),
+                  ),
+                ),
               ],
             ),
-            SizedBox(height: isRound ? 6 : 8),
-            // 2. Live Health Stats Card
-            SignalBuilder(
-              builder: (context) {
-                final steps = healthSignal.steps.value;
-                final hr = healthSignal.heartRate.value;
+          );
+        },
+      ),
+    );
+  }
 
-                return Container(
-                  width: double.infinity,
-                  padding: EdgeInsets.all(isRound ? 8 : 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0D0D1A),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: const Color(0xFF14E5B3).withValues(alpha: 0.25),
-                      width: 1,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        "Daily Activity",
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: const Color(0xFF14E5B3),
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      SizedBox(height: isRound ? 4 : 6),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _StatItem(
-                            label: "Steps",
-                            value: steps.toStringAsFixed(0),
-                            icon: Icons.directions_walk,
-                          ),
-                          Container(
-                            width: 1,
-                            height: isRound ? 24 : 28,
-                            color: Colors.white.withValues(alpha: 0.08),
-                          ),
-                          _StatItem(
-                            label: "HR",
-                            value: "${hr?.toStringAsFixed(0) ?? '--'} BPM",
-                            icon: Icons.favorite,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                );
-              },
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0D0D1A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: const Color(0xFF14E5B3).withValues(alpha: 0.2)),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF14E5B3).withValues(alpha: 0.2),
+                    Colors.transparent,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.watch, size: 24, color: Color(0xFF14E5B3)),
             ),
-            SizedBox(height: isRound ? 6 : 8),
-            // 3. Feature Navigation
+            const SizedBox(height: 12),
+            const FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'WearLink',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'Version 0.1.0+1',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'Wear OS companion app\nfor WearLink iPhone app',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.4),
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF14E5B3),
+                  foregroundColor: const Color(0xFF00382A),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
+                child: const Text('Close'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF050508),
+      body: SafeArea(
+        minimum: const EdgeInsets.symmetric(horizontal: 20),
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            // 1. Connection status banner (compact, pushed down)
+            const _ConnectionBanner(),
+            const SizedBox(height: 12),
+            // 2. Scrollable subsystem list — icons only, no subtitles
             Expanded(
               child: ListView(
-                padding: EdgeInsets.only(bottom: isRound ? 12 : 16),
+                padding: const EdgeInsets.only(bottom: 12),
                 children: [
-                  _FeatureCard(
+                  _SubsystemButton(
                     icon: Icons.favorite,
-                    label: 'Health',
+                    label: 'Health Sync',
                     onTap: () => Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => HealthScreen(health: healthSignal)),
+                      MaterialPageRoute(
+                        builder: (_) => HealthTypesScreen(options: healthTypeOptions),
+                      ),
                     ),
                   ),
-                  _FeatureCard(
-                    icon: Icons.phone,
-                    label: 'Calls',
+                  const SizedBox(height: 6),
+                  _SubsystemButton(
+                    icon: Icons.sync,
+                    label: 'Sync Data',
                     onTap: () => Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => CallScreen(callSignal: callSignal, gattClient: gattCentral)),
+                      MaterialPageRoute(
+                        builder: (_) => SyncScreen(
+                          deviceName: bleSignal.deviceName,
+                          connection: bleSignal.connection,
+                          pendingCount: healthSignal.pendingCount,
+                          lastSyncTimestamp: lastSyncTimestamp,
+                          onSync: () {
+                            _flushHealth();
+                            HapticFeedback.heavyImpact();
+                          },
+                        ),
+                      ),
                     ),
                   ),
-                  _FeatureCard(
-                    icon: Icons.notifications,
-                    label: 'Notifications',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => NotificationScreen(notifSignal: notificationSignal)),
+                  const SizedBox(height: 6),
+                  _SubsystemButton(
+                    icon: Icons.bluetooth,
+                    label: 'Connection',
+                    trailing: SignalBuilder(
+                      builder: (_) {
+                        final conn = bleSignal.connection.value;
+                        final dotColor = switch (conn) {
+                          ConnState.connected => const Color(0xFF00E676),
+                          ConnState.connecting => const Color(0xFFFFD600),
+                          ConnState.disconnected => const Color(0xFFFF5252),
+                        };
+                        return Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: dotColor,
+                            boxShadow: [
+                              BoxShadow(
+                                color: dotColor.withValues(alpha: 0.5),
+                                blurRadius: 3,
+                              ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
+                    onTap: _showConnectionDialog,
                   ),
-                  _FeatureCard(
-                    icon: Icons.music_note,
-                    label: 'Music',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => MusicScreen(music: musicSignal)),
-                    ),
+                  const SizedBox(height: 6),
+                  _SubsystemButton(
+                    icon: Icons.info_outline,
+                    label: 'About',
+                    onTap: _showAboutDialog,
                   ),
                 ],
               ),
@@ -444,13 +715,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
+// =============================================================================
 // Connection status banner
-// ---------------------------------------------------------------------------
+// =============================================================================
 
-/// Animated full-width banner showing BLE connection state with color coding.
-/// Uses a checkmark icon for connected, pulsing background for connecting,
-/// and a glow effect for the connected state.
+/// Compact animated banner showing BLE connection state with color coding.
+/// Uses FittedBox to auto-size text on round screens.
 class _ConnectionBanner extends StatelessWidget {
   const _ConnectionBanner();
 
@@ -479,134 +749,37 @@ class _ConnectionBanner extends StatelessWidget {
           ),
         };
 
-        // Connecting state: pulse the entire banner background.
-        if (conn == ConnState.connecting) {
-          return _ConnectingBanner(color: bannerColor, icon: icon, text: text);
-        }
-
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeInOut,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(
-            color: bannerColor.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: bannerColor.withValues(alpha: 0.35)),
-            boxShadow: conn == ConnState.connected
-                ? [
-                    BoxShadow(
-                      color: bannerColor.withValues(alpha: 0.3),
-                      blurRadius: 8,
-                      spreadRadius: 1,
-                    ),
-                  ]
-                : null,
-          ),
-          child: Row(
-            children: [
-              Icon(icon, size: 15, color: bannerColor),
-              const SizedBox(width: 6),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: anim,
-                    child: child,
-                  ),
-                  child: Text(
-                    text,
-                    key: ValueKey(text),
-                    style: TextStyle(
-                      color: bannerColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Pulsing banner for the connecting state: background color, icon, and text
-/// all pulse together with a smooth opacity animation.
-class _ConnectingBanner extends StatefulWidget {
-  final Color color;
-  final IconData icon;
-  final String text;
-
-  const _ConnectingBanner({
-    required this.color,
-    required this.icon,
-    required this.text,
-  });
-
-  @override
-  State<_ConnectingBanner> createState() => _ConnectingBannerState();
-}
-
-class _ConnectingBannerState extends State<_ConnectingBanner>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _pulseAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    )..repeat(reverse: true);
-    _pulseAnim = Tween<double>(begin: 0.08, end: 0.25).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _pulseAnim,
-      builder: (context, _) {
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: widget.color.withValues(alpha: _pulseAnim.value),
+            gradient: LinearGradient(
+              colors: [
+                bannerColor.withValues(alpha: 0.12),
+                bannerColor.withValues(alpha: 0.03),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: widget.color.withValues(alpha: 0.4),
+              color: bannerColor.withValues(alpha: 0.25),
             ),
           ),
           child: Row(
             children: [
-              _PulsingIcon(icon: widget.icon, color: widget.color),
-              const SizedBox(width: 6),
+              Icon(icon, size: 16, color: bannerColor),
+              const SizedBox(width: 8),
               Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: anim,
-                    child: child,
-                  ),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
                   child: Text(
-                    widget.text,
-                    key: ValueKey(widget.text),
+                    text,
                     style: TextStyle(
-                      color: widget.color,
-                      fontSize: 12,
+                      color: bannerColor,
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
@@ -618,208 +791,99 @@ class _ConnectingBannerState extends State<_ConnectingBanner>
   }
 }
 
-/// Pulsing opacity animation for the connecting-state icon.
-class _PulsingIcon extends StatefulWidget {
-  final IconData icon;
-  final Color color;
+// =============================================================================
+// Subsystem button
+// =============================================================================
 
-  const _PulsingIcon({required this.icon, required this.color});
-
-  @override
-  State<_PulsingIcon> createState() => _PulsingIconState();
-}
-
-class _PulsingIconState extends State<_PulsingIcon>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    )..repeat(reverse: true);
-    _animation = Tween<double>(begin: 0.4, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) => Opacity(
-        opacity: _animation.value,
-        child: child,
-      ),
-      child: Icon(widget.icon, size: 15, color: widget.color),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Quick Sync button
-// ---------------------------------------------------------------------------
-
-/// Compact icon button in the top-right corner that forces a BLE reconnect.
-/// Shows a loading spinner while the reconnect is in flight.
-class _QuickSyncButton extends StatefulWidget {
-  const _QuickSyncButton();
-
-  @override
-  State<_QuickSyncButton> createState() => _QuickSyncButtonState();
-}
-
-class _QuickSyncButtonState extends State<_QuickSyncButton> {
-  bool _loading = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 34,
-      height: 34,
-      child: IconButton(
-        padding: EdgeInsets.zero,
-        icon: _loading
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: Color(0xFF14E5B3),
-                ),
-              )
-            : const Icon(Icons.refresh, size: 18, color: Color(0xFF14E5B3)),
-        onPressed: _loading ? null : _onSync,
-        style: IconButton.styleFrom(
-          backgroundColor: const Color(0xFF0D0D1A),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(9),
-            side: BorderSide(
-              color: const Color(0xFF14E5B3).withValues(alpha: 0.25),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _onSync() async {
-    setState(() => _loading = true);
-    try {
-      await gattCentral.reconnect();
-      await _refreshDeviceInfo();
-      _flushHealth();
-    } catch (e) {
-      debugPrint('Quick Sync failed: $e');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Health stat item
-// ---------------------------------------------------------------------------
-
-class _StatItem extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-
-  const _StatItem({required this.label, required this.value, required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Icon(icon, size: 13, color: const Color(0xFF14E5B3)),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 9, color: Colors.grey),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Feature card
-// ---------------------------------------------------------------------------
-
-/// A compact, rounded feature card with a teal circular icon, label, and chevron.
-class _FeatureCard extends StatelessWidget {
+/// A tappable row with a gradient background, circular icon container,
+/// label/subtitle, and optional trailing widget. Used for all subsystem
+/// navigation in the configuration hub.
+///
+/// - 44dp minimum height
+/// - 24x24dp icon in 44x44dp circular container
+/// - Gradient background (not flat)
+/// - Subtle shape radius (not pill-shaped)
+/// - FittedBox for auto-sizing text
+class _SubsystemButton extends StatelessWidget {
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final Widget? trailing;
+  final VoidCallback? onTap;
 
-  const _FeatureCard({
+  const _SubsystemButton({
     required this.icon,
     required this.label,
-    required this.onTap,
+    this.trailing,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Material(
-        color: const Color(0xFF0D0D1A),
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-            child: Row(
-              children: [
-                // Teal circular icon
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF14E5B3),
-                    shape: BoxShape.circle,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 40),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [
+              Color(0xFF0D0D1A),
+              Color(0xFF151525),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.06),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            children: [
+              // Icon in 36x36 circular container
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      const Color(0xFF14E5B3).withValues(alpha: 0.2),
+                      const Color(0xFF14E5B3).withValues(alpha: 0.05),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  child: Icon(icon, color: const Color(0xFF050508), size: 18),
+                  shape: BoxShape.circle,
                 ),
-                const SizedBox(width: 10),
-                // Feature label
-                Text(
-                  label,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: Colors.white,
-                    fontSize: 15,
+                child: Icon(icon, size: 20, color: const Color(0xFF14E5B3)),
+              ),
+              const SizedBox(width: 10),
+              // Label only — no subtitle on watch (saves space)
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-                const Spacer(),
-                // Chevron indicator
-                Icon(
-                  Icons.chevron_right,
-                  color: const Color(0xFF14E5B3).withValues(alpha: 0.6),
-                  size: 22,
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 6),
+              // Trailing widget (chevron, status dot, etc.)
+              trailing ??
+                  Icon(
+                    Icons.chevron_right,
+                    color: const Color(0xFF14E5B3).withValues(alpha: 0.5),
+                    size: 18,
+                  ),
+            ],
           ),
         ),
       ),
