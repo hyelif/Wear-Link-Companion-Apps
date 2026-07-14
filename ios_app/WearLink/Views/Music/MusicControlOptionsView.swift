@@ -1,5 +1,11 @@
 import SwiftUI
 
+// MARK: - Accent color
+
+private let teal = Color(red: 0.2, green: 0.8, blue: 0.8)
+
+// MARK: - MusicControlOptionsView
+
 struct MusicControlOptionsView: View {
     @State private var selectedColor: BackgroundColor = .random
     @State private var showAlbumArt = false

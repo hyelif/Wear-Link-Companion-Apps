@@ -1,5 +1,11 @@
 import SwiftUI
 
+// MARK: - Accent color
+
+private let teal = Color(red: 0.2, green: 0.8, blue: 0.8)
+
+// MARK: - DeviceDetailsView
+
 struct DeviceDetailsView: View {
     @Environment(AppContainer.self) private var container
     @Environment(\.dismiss) private var dismiss
@@ -9,7 +15,6 @@ struct DeviceDetailsView: View {
             if let device = container.device {
                 detailsList(device: device)
             } else if container.ble.state == .connected {
-                // BLE connected but device info not yet received from FE10 read
                 ContentUnavailableView(
                     "Waiting for Device Info",
                     systemImage: "applewatch.radiowaves.left.and.right",
@@ -51,6 +56,7 @@ struct DeviceDetailsView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
             }
+            .listRowBackground(Color(.systemGray6))
 
             // General section
             Section {
@@ -67,7 +73,6 @@ struct DeviceDetailsView: View {
                 ToggleRow(title: "Bidirectional Sync", subtitle: "Sync notification actions between devices", icon: Image(systemName: "arrow.triangle.2.circlepath"), isOn: Binding(get: { container.settings.bidirectionalSync }, set: { container.settings.bidirectionalSync = $0 }))
 
                 NavigationLink {
-                    // TODO: App notifications picker
                     Text("App Notifications")
                         .navigationTitle("App Notifications")
                 } label: {
@@ -76,7 +81,6 @@ struct DeviceDetailsView: View {
                 .disabled(true)
 
                 NavigationLink {
-                    // TODO: Notification history
                     Text("Notification History")
                         .navigationTitle("Notification History")
                 } label: {
@@ -94,17 +98,27 @@ struct DeviceDetailsView: View {
                 SectionHeader(title: "Health")
             }
 
+            // Music section
+            Section {
+                NavigationLink {
+                    MusicControlOptionsView()
+                } label: {
+                    Label("Music Control Options", systemImage: "music.note.list")
+                }
+            } header: {
+                SectionHeader(title: "Music")
+            }
+
             // Find Device section
             Section {
                 Button {
-                    // TODO: Send find-device signal to watch
                     print("[DeviceDetails] Find My Watch tapped")
                 } label: {
                     HStack {
                         Image(systemName: "bell.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(teal)
                         Text("Find My Watch")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(teal)
                         Spacer()
                     }
                 }

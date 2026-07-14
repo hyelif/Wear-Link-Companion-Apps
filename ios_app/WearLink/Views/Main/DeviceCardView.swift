@@ -1,5 +1,11 @@
 import SwiftUI
 
+// MARK: - Accent color
+
+private let teal = Color(red: 0.2, green: 0.8, blue: 0.8)
+
+// MARK: - DeviceCardView
+
 struct DeviceCardView: View {
     let deviceName: String
     let deviceVersion: String
@@ -40,10 +46,10 @@ struct DeviceCardView: View {
                 HStack(spacing: 4) {
                     Image(systemName: batteryIconName)
                         .font(.caption)
-                        .foregroundStyle(batteryLevel < 20 ? .red : .green)
+                        .foregroundStyle(batteryLevel < 20 ? .red : teal)
                     Text("\(batteryLevel)%")
                         .font(.caption)
-                        .foregroundStyle(batteryLevel < 20 ? .red : .green)
+                        .foregroundStyle(batteryLevel < 20 ? .red : teal)
                         .monospacedDigit()
                 }
 
@@ -69,13 +75,20 @@ struct DeviceCardView: View {
             }
         }
         .padding()
-        .background(Color(.systemBackground))
+        .background(cardBg)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(isConnected ? teal.opacity(0.4) : Color(.separator).opacity(0.3), lineWidth: isConnected ? 1.5 : 1)
+        )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(deviceName)
     }
 }
+
+// MARK: - Card background
+
+private let cardBg = Color(.systemGray6)
 
 #Preview {
     VStack {
@@ -83,5 +96,5 @@ struct DeviceCardView: View {
         DeviceCardView(deviceName: "Galaxy Watch7 (A64Y)", deviceVersion: "Android 14 • One UI 6", batteryLevel: 12, isConnected: false, isCharging: true)
     }
     .padding()
-    .background(Color(.systemGroupedBackground))
+    .background(Color(.systemBackground))
 }

@@ -1,5 +1,11 @@
 import SwiftUI
 
+// MARK: - Accent color
+
+private let teal = Color(red: 0.2, green: 0.8, blue: 0.8)
+
+// MARK: - DeviceIconView
+
 struct DeviceIconView: View {
     var size: CGFloat = 60
     var iconName: String = "applewatch"
@@ -9,7 +15,7 @@ struct DeviceIconView: View {
             Circle()
                 .fill(
                     LinearGradient(
-                        gradient: Gradient(colors: [.blue, .cyan]),
+                        gradient: Gradient(colors: [teal, teal.opacity(0.6)]),
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -17,8 +23,7 @@ struct DeviceIconView: View {
                 .frame(width: size, height: size)
             Image(systemName: iconName)
                 .foregroundStyle(.white)
-                .font(.title)
-                .imageScale(.large)
+                .font(.system(size: size * 0.45))
         }
     }
 }

@@ -394,6 +394,23 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
             if characteristic.uuid == WearLinkUUID.linkControl {
                 startHeartbeat()
             }
+            // Populate a placeholder device model so the UI shows the watch as
+            // connected immediately, even before any FE10 read completes.
+            if appContainer?.device == nil {
+                let device = WearableDevice(
+                    id: central.identifier.uuidString,
+                    name: "Wear OS Watch",
+                    model: "",
+                    androidVersion: "",
+                    appVersion: "",
+                    batteryLevel: 0,
+                    isCharging: false,
+                    isConnected: true,
+                    lastSeen: Date()
+                )
+                appContainer?.device = device
+                log(.info, "Created placeholder device for central \(central.identifier)")
+            }
             NotificationCenter.default.post(name: .bleDidReconnect, object: nil)
         }
     }
@@ -407,6 +424,10 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
                 subscribedCentrals.removeValue(forKey: characteristic.uuid)
             }
             updateConnectionState()
+            // Clear the device model when no centrals are subscribed anymore.
+            if state != .connected {
+                appContainer?.device = nil
+            }
             log(.info, "Central \(central.identifier) unsubscribed from \(characteristic.uuid.uuidString)")
         }
     }
@@ -452,6 +473,23 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
                 // then calling respond; value must be set BEFORE respond.
                 request.value = data
                 p.respond(to: request, withResult: .success)
+                // Populate a placeholder device model if not already set by
+                // didSubscribeTo (e.g. if the watch reads FE10 before subscribing).
+                if appContainer?.device == nil {
+                    let device = WearableDevice(
+                        id: request.central.identifier.uuidString,
+                        name: "Wear OS Watch",
+                        model: "",
+                        androidVersion: "",
+                        appVersion: "",
+                        batteryLevel: 0,
+                        isCharging: false,
+                        isConnected: true,
+                        lastSeen: Date()
+                    )
+                    appContainer?.device = device
+                    log(.info, "Created placeholder device from FE10 read for central \(request.central.identifier)")
+                }
             default:
                 log(.warning, "Read on unsupported characteristic \(uuid.uuidString)")
                 p.respond(to: request, withResult: .readNotPermitted)
@@ -664,6 +702,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
         for uuid in characteristics.keys { reassemblers[uuid]?.clear() }
         subscribedCentrals.removeAll()
         healthManager?.clear()
+        appContainer?.device = nil
         state = .poweredOff
     }
 

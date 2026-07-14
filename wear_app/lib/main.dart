@@ -52,6 +52,9 @@ final distanceEnabled = signal<bool>(true);
 /// Timestamp (ms) of the last successful health sync.
 final lastSyncTimestamp = signal<int>(0);
 
+/// Initialization error message, or null if init succeeded.
+final initError = signal<String?>(null);
+
 /// Build the list of HealthTypeOption for the settings screen.
 List<HealthTypeOption> get healthTypeOptions => [
   HealthTypeOption(
@@ -181,6 +184,7 @@ Future<void> main() async {
     await _refreshDeviceInfo();
   } catch (e) {
     debugPrint('Critical init failure: $e');
+    initError.value = 'Initialization failed. Check Bluetooth permissions.';
   }
 }
 
@@ -628,89 +632,297 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       backgroundColor: const Color(0xFF050508),
       body: SafeArea(
         minimum: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(
-          children: [
-            const SizedBox(height: 12),
-            // 1. Connection status banner (compact, pushed down)
-            const _ConnectionBanner(),
-            const SizedBox(height: 12),
-            // 2. Scrollable subsystem list — icons only, no subtitles
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.only(bottom: 12),
-                children: [
-                  _SubsystemButton(
-                    icon: Icons.favorite,
-                    label: 'Health Sync',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => HealthTypesScreen(options: healthTypeOptions),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  _SubsystemButton(
-                    icon: Icons.sync,
-                    label: 'Sync Data',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => SyncScreen(
-                          deviceName: bleSignal.deviceName,
-                          connection: bleSignal.connection,
-                          pendingCount: healthSignal.pendingCount,
-                          lastSyncTimestamp: lastSyncTimestamp,
-                          onSync: () {
-                            _flushHealth();
-                            HapticFeedback.heavyImpact();
-                          },
+        child: SignalBuilder(
+          builder: (_) {
+            final err = initError.value;
+            final conn = bleSignal.connection.value;
+
+            // --- Error state: init failed ---
+            if (err != null) {
+              return _ErrorState(
+                message: err,
+                onRetry: () {
+                  initError.value = null;
+                  // Re-trigger init by restarting the app's async setup.
+                  // For now, just clear the error and let the user re-open.
+                },
+              );
+            }
+
+            // --- Loading state: first connection attempt ---
+            if (conn == ConnState.connecting && _firstConnValue) {
+              return _LoadingState();
+            }
+
+            // --- Empty state: no device paired ---
+            if (conn == ConnState.disconnected && _firstConnValue) {
+              return _EmptyState();
+            }
+
+            // --- Normal state: configuration hub ---
+            return Column(
+              children: [
+                const SizedBox(height: 12),
+                // 1. Connection status banner (compact, pushed down)
+                const _ConnectionBanner(),
+                const SizedBox(height: 12),
+                // 2. Scrollable subsystem list
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    children: [
+                      _SubsystemButton(
+                        icon: Icons.favorite,
+                        label: 'Health Sync',
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => HealthTypesScreen(options: healthTypeOptions),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  _SubsystemButton(
-                    icon: Icons.bluetooth,
-                    label: 'Connection',
-                    trailing: SignalBuilder(
-                      builder: (_) {
-                        final conn = bleSignal.connection.value;
-                        final dotColor = switch (conn) {
-                          ConnState.connected => const Color(0xFF00E676),
-                          ConnState.connecting => const Color(0xFFFFD600),
-                          ConnState.disconnected => const Color(0xFFFF5252),
-                        };
-                        return Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: dotColor,
-                            boxShadow: [
-                              BoxShadow(
-                                color: dotColor.withValues(alpha: 0.5),
-                                blurRadius: 3,
-                              ),
-                            ],
+                      const SizedBox(height: 6),
+                      _SubsystemButton(
+                        icon: Icons.sync,
+                        label: 'Sync Data',
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => SyncScreen(
+                              deviceName: bleSignal.deviceName,
+                              connection: bleSignal.connection,
+                              pendingCount: healthSignal.pendingCount,
+                              lastSyncTimestamp: lastSyncTimestamp,
+                              onSync: () {
+                                _flushHealth();
+                                HapticFeedback.heavyImpact();
+                              },
+                            ),
                           ),
-                        );
-                      },
-                    ),
-                    onTap: _showConnectionDialog,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _SubsystemButton(
+                        icon: Icons.bluetooth,
+                        label: 'Connection',
+                        trailing: SignalBuilder(
+                          builder: (_) {
+                            final dotConn = bleSignal.connection.value;
+                            final dotColor = switch (dotConn) {
+                              ConnState.connected => const Color(0xFF00E676),
+                              ConnState.connecting => const Color(0xFFFFD600),
+                              ConnState.disconnected => const Color(0xFFFF5252),
+                            };
+                            return Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: dotColor,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: dotColor.withValues(alpha: 0.5),
+                                    blurRadius: 3,
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                        onTap: _showConnectionDialog,
+                      ),
+                      const SizedBox(height: 6),
+                      _SubsystemButton(
+                        icon: Icons.info_outline,
+                        label: 'About',
+                        onTap: _showAboutDialog,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 6),
-                  _SubsystemButton(
-                    icon: Icons.info_outline,
-                    label: 'About',
-                    onTap: _showAboutDialog,
-                  ),
-                ],
-              ),
-            ),
-          ],
+                ),
+              ],
+            );
+          },
         ),
       ),
+    );
+  }
+}
+
+// =============================================================================
+// ConnectionScreen state widgets
+// =============================================================================
+
+/// Shown when BLE is initializing for the first time.
+class _LoadingState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const SizedBox(
+          width: 32,
+          height: 32,
+          child: CircularProgressIndicator(
+            strokeWidth: 3,
+            color: Color(0xFF14E5B3),
+          ),
+        ),
+        const SizedBox(height: 16),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'Initializing Bluetooth...',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.6),
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Shown when no iPhone is paired or available.
+class _EmptyState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFFFF5252).withValues(alpha: 0.2),
+                Colors.transparent,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.bluetooth_disabled,
+            size: 28,
+            color: Color(0xFFFF5252),
+          ),
+        ),
+        const SizedBox(height: 16),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'No iPhone Connected',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'Open WearLink on your iPhone\nand ensure Bluetooth is on',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Shown when initialization fails with a retry option.
+class _ErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _ErrorState({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFFFF5252).withValues(alpha: 0.2),
+                Colors.transparent,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.error_outline,
+            size: 28,
+            color: Color(0xFFFF5252),
+          ),
+        ),
+        const SizedBox(height: 16),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'Something went wrong',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        SizedBox(
+          width: 160,
+          height: 40,
+          child: ElevatedButton(
+            onPressed: onRetry,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF14E5B3),
+              foregroundColor: const Color(0xFF00382A),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              elevation: 0,
+            ),
+            child: const FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'Retry',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

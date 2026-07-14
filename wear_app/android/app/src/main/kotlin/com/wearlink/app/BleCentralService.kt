@@ -73,6 +73,32 @@ class BleCentralService(private val context: Context) {
     /// Track which characteristics we have successfully subscribed to via CCCD.
     private val subscribedChars = mutableSetOf<UUID>()
 
+    // ---- Reconnect loop prevention -----------------------------------------
+    //
+    // Exponential backoff for reconnection attempts. Reset on stable connection
+    // that lasts > 10s. Prevents infinite reconnect loops when the iPhone
+    // disconnects repeatedly (e.g. supervision timeout, GATT error).
+
+    /// Set to true when disconnect() or stop() is called intentionally, so
+    /// onConnectionStateChange(DISCONNECTED) does NOT re-enter the scan loop.
+    @Volatile private var localDisconnectRequested = false
+
+    /// Consecutive reconnection attempts since last stable connection.
+    private var reconnectAttempts = 0
+
+    /// Base delay for the first reconnection attempt (milliseconds).
+    private val RECONNECT_BASE_DELAY_MS = 3_000L
+
+    /// Maximum backoff delay (milliseconds).
+    private val RECONNECT_MAX_DELAY_MS = 30_000L
+
+    /// System uptime millis when we last entered CONNECTED state. Used to
+    /// determine if the connection was stable enough to reset backoff.
+    private var connectedSinceMs: Long = 0
+
+    /// How long a connection must survive before we reset the backoff counter.
+    private val STABLE_CONNECTION_THRESHOLD_MS = 10_000L
+
     // ---- Bond state receiver ------------------------------------------------
     //
     // Listens for BluetoothDevice.ACTION_BOND_STATE_CHANGED broadcasts so we
@@ -140,6 +166,7 @@ class BleCentralService(private val context: Context) {
     /// Stop scanning and disconnect from the iPhone. Clears all state.
     fun stop() {
         Log.i(TAG, "stop: tearing down central connection")
+        localDisconnectRequested = true
         stopDutyCycledScan()
         gatt?.disconnect()
         gatt?.close()
@@ -157,6 +184,7 @@ class BleCentralService(private val context: Context) {
     /// The duty-cycled scan will resume automatically on disconnect.
     fun disconnect() {
         Log.i(TAG, "disconnect: disconnecting from iPhone")
+        localDisconnectRequested = true
         gatt?.disconnect()
     }
 
@@ -398,19 +426,53 @@ class BleCentralService(private val context: Context) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.i(TAG, "GATT CONNECTED: ${gatt.device.address} (status=$status)")
+                    connectedSinceMs = System.currentTimeMillis()
                     setConn(ConnState.CONNECTED, gatt.device.name)
                     // Discover services to find the WearLink service and its
                     // characteristics.
                     gatt.discoverServices()
+                    // Schedule a check to reset backoff if the connection stays
+                    // stable beyond the threshold. This prevents rapid reconnects
+                    // from resetting the backoff counter.
+                    handler.postDelayed({
+                        if (connState == ConnState.CONNECTED &&
+                            System.currentTimeMillis() - connectedSinceMs >= STABLE_CONNECTION_THRESHOLD_MS) {
+                            if (reconnectAttempts > 0) {
+                                Log.i(TAG, "Connection stable for >${STABLE_CONNECTION_THRESHOLD_MS}ms — resetting reconnect backoff")
+                                reconnectAttempts = 0
+                            }
+                        }
+                    }, STABLE_CONNECTION_THRESHOLD_MS)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    Log.i(TAG, "GATT DISCONNECTED (status=$status)")
+                    val elapsed = if (connectedSinceMs > 0) System.currentTimeMillis() - connectedSinceMs else -1L
+                    val disconnectType = when {
+                        localDisconnectRequested -> "LOCAL"
+                        status != 0 -> "ERROR(status=$status)"
+                        else -> "CLEAN(remote)"
+                    }
+                    Log.i(TAG, "GATT DISCONNECTED type=$disconnectType elapsed=${elapsed}ms")
                     gatt.close()
                     subscribedChars.clear()
                     setConn(ConnState.DISCONNECTED)
-                    // Re-enter the duty-cycled scan after a short delay so the
-                    // previous connection fully tears down.
-                    handler.postDelayed({ startDutyCycledScan() }, 3000)
+                    connectedSinceMs = 0
+
+                    if (localDisconnectRequested) {
+                        Log.i(TAG, "Disconnect was local — not re-entering scan loop")
+                        localDisconnectRequested = false
+                        return
+                    }
+
+                    if (status != 0) {
+                        Log.w(TAG, "GATT error disconnect: status=$status — will retry with backoff")
+                    }
+
+                    // Re-enter the duty-cycled scan with exponential backoff so
+                    // the previous connection fully tears down and we don't flood
+                    // the iPhone with connection attempts.
+                    val delay = getReconnectDelay()
+                    Log.i(TAG, "Scheduling reconnect attempt #$reconnectAttempts in ${delay}ms")
+                    handler.postDelayed({ startDutyCycledScan() }, delay)
                 }
             }
         }
@@ -539,6 +601,21 @@ class BleCentralService(private val context: Context) {
         } else {
             Log.w(TAG, "No CCCD descriptor found for $uuid — cannot subscribe")
         }
+    }
+
+    // ---- Reconnect backoff -----------------------------------------------
+
+    /// Calculate the delay for the next reconnection attempt using exponential
+    /// backoff: base * 2^attempt, capped at RECONNECT_MAX_DELAY_MS.
+    /// Increments the attempt counter.
+    private fun getReconnectDelay(): Long {
+        reconnectAttempts++
+        val delay = minOf(
+            RECONNECT_BASE_DELAY_MS * (1L shl (reconnectAttempts - 1).coerceAtMost(4)),
+            RECONNECT_MAX_DELAY_MS
+        )
+        Log.d(TAG, "Reconnect backoff: attempt=$reconnectAttempts delay=${delay}ms")
+        return delay
     }
 
     // ---- State management ------------------------------------------------

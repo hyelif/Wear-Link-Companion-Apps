@@ -43,25 +43,149 @@ class _HealthTypesScreenState extends State<HealthTypesScreen> {
         elevation: 0,
       ),
       body: SafeArea(
-        child: ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-          itemCount: widget.options.length,
-          itemBuilder: (context, index) {
-            final opt = widget.options[index];
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: SignalBuilder(
-                builder: (context) {
-                  final isOn = opt.enabled.value;
-                  return _HealthTypeTile(
-                    option: opt,
-                    isOn: isOn,
-                    onToggle: () => opt.enabled.value = !isOn,
-                  );
-                },
+        child: _buildBody(),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    final options = widget.options;
+
+    // --- Loading state: options are being loaded ---
+    // (Options are passed in, but we guard against a transient empty list
+    //  that might appear before the first signal update.)
+    if (options.isEmpty) {
+      return const Center(
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: CircularProgressIndicator(
+            strokeWidth: 3,
+            color: Color(0xFF14E5B3),
+          ),
+        ),
+      );
+    }
+
+    // --- Error state: no valid options ---
+    final hasAnyEnabled = options.any((o) => o.enabled.value);
+    if (!hasAnyEnabled) {
+      return _EmptyHealthState(
+        onReset: () {
+          for (final opt in options) {
+            opt.enabled.value = true;
+          }
+          setState(() {});
+        },
+      );
+    }
+
+    // --- Normal state: list of health type toggles ---
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      itemCount: options.length,
+      itemBuilder: (context, index) {
+        final opt = options[index];
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: SignalBuilder(
+            builder: (context) {
+              final isOn = opt.enabled.value;
+              return _HealthTypeTile(
+                option: opt,
+                isOn: isOn,
+                onToggle: () => opt.enabled.value = !isOn,
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Shown when all health types are disabled.
+class _EmptyHealthState extends StatelessWidget {
+  final VoidCallback onReset;
+
+  const _EmptyHealthState({required this.onReset});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF14E5B3).withValues(alpha: 0.15),
+                    Colors.transparent,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
               ),
-            );
-          },
+              child: const Icon(
+                Icons.favorite_border,
+                size: 28,
+                color: Color(0xFF14E5B3),
+              ),
+            ),
+            const SizedBox(height: 16),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'No Health Types Selected',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'Enable at least one type\nto start syncing health data',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.4),
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: 160,
+              height: 40,
+              child: ElevatedButton(
+                onPressed: onReset,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF14E5B3),
+                  foregroundColor: const Color(0xFF00382A),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  elevation: 0,
+                ),
+                child: const FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    'Enable All',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// In-app BLE connection log — lets the user diagnose the iPhone→watch
-/// connection WITHOUT a Mac/Console.app. Shows the full state-machine trace:
-/// permission state → scan cycles → discovery → connect → GATT service/char
-/// discovery → health config. Mirror of BLEManager.logEntries (os_log).
+// MARK: - Accent color
+
+private let teal = Color(red: 0.2, green: 0.8, blue: 0.8)
+
+// MARK: - BLELogView
+
 struct BLELogView: View {
     @Environment(AppContainer.self) private var container
     @State private var autoScroll = true
@@ -13,9 +15,19 @@ struct BLELogView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     if container.ble.logEntries.isEmpty {
-                        Text("No BLE events yet. Make sure Bluetooth is on and the app has Bluetooth permission.")
-                            .foregroundStyle(.secondary)
-                            .padding()
+                        VStack(spacing: 12) {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.largeTitle)
+                                .foregroundStyle(.tertiary)
+                            Text("No BLE events yet.")
+                                .foregroundStyle(.secondary)
+                            Text("Make sure Bluetooth is on and the app has Bluetooth permission.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 60)
                     }
                     ForEach(container.ble.logEntries) { entry in
                         logRow(entry)
@@ -31,6 +43,7 @@ struct BLELogView: View {
                 withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
             }
         }
+        .background(Color(.systemBackground))
         .navigationTitle("BLE Logs")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -43,6 +56,7 @@ struct BLELogView: View {
                     Button("Rescan now") { container.ble.startScanning() }
                 } label: {
                     Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(teal)
                 }
             }
         }

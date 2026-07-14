@@ -1,5 +1,11 @@
 import SwiftUI
 
+// MARK: - Accent color
+
+private let teal = Color(red: 0.2, green: 0.8, blue: 0.8)
+
+// MARK: - ToggleRow
+
 struct ToggleRow: View {
     let title: String
     let subtitle: String?
@@ -10,7 +16,7 @@ struct ToggleRow: View {
         HStack(spacing: 12) {
             if let icon {
                 icon
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(teal)
                     .font(.body)
                     .frame(width: 24)
             }
@@ -26,7 +32,7 @@ struct ToggleRow: View {
             Spacer()
             Toggle("", isOn: $isOn)
                 .labelsHidden()
-                .tint(.green)
+                .tint(teal)
                 .accessibilityLabel(title)
         }
         .padding(.vertical, 8)
