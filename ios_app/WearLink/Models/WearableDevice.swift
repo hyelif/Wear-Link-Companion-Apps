@@ -4,6 +4,7 @@ struct WearableDevice: Identifiable, Codable {
     let id: String
     var name: String
     var model: String
+    var firmware: String
     var androidVersion: String
     var appVersion: String
     var batteryLevel: Int

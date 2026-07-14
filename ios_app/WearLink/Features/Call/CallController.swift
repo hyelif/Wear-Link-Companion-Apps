@@ -79,18 +79,24 @@ extension CallController: CXCallObserverDelegate {
             self.hasIncomingCall = true
 
             // Build and send the CallEvent proto to the watch.
-            let event = CallEvent(
-                callId: callId,
-                caller: "Unknown",
-                hasVideo: false,
-                timestampMs: UInt64(Date().timeIntervalSince1970 * 1000)
-            )
-
-            let payload = ProtoCodec.encodeCallEvent(event)
-            await self.ble.gatt?.write(payload, to: WearLinkUUID.callEvent)
+            self.sendCallEvent(callId: callId, caller: "Unknown", hasVideo: false)
         }
     }
 }
+
+    // MARK: - Sending call events to the watch
+
+    /// Create a `CallEvent` proto and push it to the watch via `BLEManager.sendCallEvent()`.
+    /// Called when an incoming call is detected by `CXCallObserver`.
+    func sendCallEvent(callId: String, caller: String, hasVideo: Bool) {
+        let event = CallEvent(
+            callId: callId,
+            caller: caller,
+            hasVideo: hasVideo,
+            timestampMs: UInt64(Date().timeIntervalSince1970 * 1000)
+        )
+        ble.sendCallEvent(event)
+    }
 
 // MARK: - Watch action handling
 

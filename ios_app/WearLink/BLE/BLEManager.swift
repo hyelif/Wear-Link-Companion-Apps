@@ -401,6 +401,7 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
                     id: central.identifier.uuidString,
                     name: "Wear OS Watch",
                     model: "",
+                    firmware: "",
                     androidVersion: "",
                     appVersion: "",
                     batteryLevel: 0,
@@ -473,23 +474,10 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
                 // then calling respond; value must be set BEFORE respond.
                 request.value = data
                 p.respond(to: request, withResult: .success)
-                // Populate a placeholder device model if not already set by
-                // didSubscribeTo (e.g. if the watch reads FE10 before subscribing).
-                if appContainer?.device == nil {
-                    let device = WearableDevice(
-                        id: request.central.identifier.uuidString,
-                        name: "Wear OS Watch",
-                        model: "",
-                        androidVersion: "",
-                        appVersion: "",
-                        batteryLevel: 0,
-                        isCharging: false,
-                        isConnected: true,
-                        lastSeen: Date()
-                    )
-                    appContainer?.device = device
-                    log(.info, "Created placeholder device from FE10 read for central \(request.central.identifier)")
-                }
+                // Populate the device model from cached DeviceInfo data so the UI
+                // shows real device info (name, firmware, battery) immediately.
+                updateDeviceModel(from: cachedDeviceInfo, centralId: request.central.identifier.uuidString)
+                log(.info, "Updated device model from FE10 read for central \(request.central.identifier)")
             default:
                 log(.warning, "Read on unsupported characteristic \(uuid.uuidString)")
                 p.respond(to: request, withResult: .readNotPermitted)
@@ -535,13 +523,15 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
     // MARK: - Inbound dispatch
 
     private func dispatchInbound(uuid: CBUUID, payload: Data) async {
-        // FE21 HealthControl is handled here (no feature controller self-
-        // registers for it); everything else is fed to the gatt façade's
-        // per-UUID onPayload handlers (set by BLEManager for callAction /
-        // notificationAction, and self-registered by MusicController and
-        // HealthManager for musicCommand / healthStream). The façade is the
+        // FE20 healthStream and FE21 HealthControl are handled directly here;
+        // everything else is fed to the gatt façade's per-UUID onPayload handlers
+        // (set by BLEManager for callAction / notificationAction, and
+        // self-registered by MusicController for musicCommand). The façade is the
         // single dispatch path for those, avoiding double delivery.
         switch uuid {
+        case WearLinkUUID.healthStream:
+            guard let frame = ProtoCodec.decodeHealthFrame(from: payload) else { return }
+            healthManager?.ingest(frame)
         case WearLinkUUID.healthControl:
             guard let cmd = ProtoCodec.decodeHealthControl(from: payload) else { return }
             applyHealthControl(cmd)
@@ -694,6 +684,37 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
         }
     }
 
+    // MARK: - Feature data push (convenience wrappers)
+
+    /// Encode a `CallEvent` proto and push it to the watch on the FE30 (callEvent)
+    /// characteristic. Called by `CallController` when an incoming call is detected.
+    func sendCallEvent(_ event: CallEvent) {
+        let payload = ProtoCodec.encodeCallEvent(event)
+        Task { @MainActor in
+            await sendNotification(WearLinkUUID.callEvent, payload: payload)
+        }
+    }
+
+    /// Encode a `WearNotification` proto and push it to the watch on the FE40
+    /// (notification) characteristic. Called by `NotificationForwarder` when a
+    /// push notification arrives via the app group bridge.
+    func sendNotification(_ notif: WearNotification) {
+        let payload = ProtoCodec.encodeWearNotification(notif)
+        Task { @MainActor in
+            await sendNotification(WearLinkUUID.notification, payload: payload)
+        }
+    }
+
+    /// Encode a `MusicNowPlaying` proto and push it to the watch on the FE50
+    /// (musicNowPlaying) characteristic. Called by `MusicController` when
+    /// playback state or metadata changes.
+    func sendMusicNowPlaying(_ music: MusicNowPlaying) {
+        let payload = ProtoCodec.encodeMusicNowPlaying(music)
+        Task { @MainActor in
+            await sendNotification(WearLinkUUID.musicNowPlaying, payload: payload)
+        }
+    }
+
     // MARK: - Teardown helpers
 
     private func invalidateAll() {
@@ -716,6 +737,25 @@ final class BLEManager: NSObject, CBPeripheralManagerDelegate {
             batteryPercent: battery,
             preferredMtu: 247
         )
+    }
+
+    /// Create or update the WearableDevice model from cached DeviceInfo data.
+    /// Called when the watch reads the FE10 characteristic, so the iOS UI shows
+    /// real device info (name, firmware, battery) rather than placeholders.
+    private func updateDeviceModel(from info: DeviceInfo, centralId: String) {
+        let device = WearableDevice(
+            id: centralId,
+            name: info.model,
+            model: UIDevice.current.model,
+            firmware: info.firmware,
+            androidVersion: "",
+            appVersion: "",
+            batteryLevel: Int(info.batteryPercent),
+            isCharging: UIDevice.current.batteryState == .charging,
+            isConnected: true,
+            lastSeen: Date()
+        )
+        appContainer?.device = device
     }
 }
 

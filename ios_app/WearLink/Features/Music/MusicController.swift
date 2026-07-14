@@ -233,6 +233,15 @@ final class MusicController: NSObject {
         }
     }
 
+    // MARK: - Sending now-playing info to the watch
+
+    /// Encode a `MusicNowPlaying` proto and push it to the watch via
+    /// `BLEManager.sendMusicNowPlaying()`. Called when playback state or
+    /// metadata changes.
+    func sendMusicNowPlaying(_ music: MusicNowPlaying) {
+        ble.sendMusicNowPlaying(music)
+    }
+
     // MARK: - Publishing now-playing info
 
     /// Called by the app's audio player whenever playback state or metadata
@@ -310,10 +319,7 @@ final class MusicController: NSObject {
     /// Encodes the now-playing info as a `MusicNowPlaying` proto and writes
     /// it to the watch via the `musicNowPlaying` notify characteristic.
     private func sendToWatch(_ info: MusicNowPlaying) {
-        let payload = ProtoCodec.encodeMusicNowPlaying(info)
-        Task { @MainActor in
-            await ble.gatt?.write(payload, to: WearLinkUUID.musicNowPlaying)
-        }
+        sendMusicNowPlaying(info)
     }
 
     // MARK: - Periodic position updates
@@ -339,8 +345,7 @@ final class MusicController: NSObject {
                 MPNowPlayingInfoCenter.default().nowPlayingInfo = mpInfo
 
                 // Push the updated position to the watch.
-                let payload = ProtoCodec.encodeMusicNowPlaying(self.nowPlaying)
-                await self.ble.gatt?.write(payload, to: WearLinkUUID.musicNowPlaying)
+                self.sendMusicNowPlaying(self.nowPlaying)
             }
         }
     }

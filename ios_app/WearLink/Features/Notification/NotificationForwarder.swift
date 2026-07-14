@@ -103,6 +103,12 @@ final class NotificationForwarder: NSObject {
 
     // MARK: - Public API
 
+    /// Encode a `WearNotification` and push it to the watch via `BLEManager.sendNotification()`.
+    /// Called by the app group bridge when a push notification arrives.
+    func sendNotification(_ notif: WearNotification) {
+        ble.sendNotification(notif)
+    }
+
     /// Encode a notification and push to the watch over BLE.
     ///
     /// - Parameters:
@@ -120,10 +126,7 @@ final class NotificationForwarder: NSObject {
             timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
             replyChoices: replyChoices
         )
-        let payload = ProtoCodec.encodeWearNotification(wearNotif)
-        Task { @MainActor in
-            await ble.gatt?.write(payload, to: WearLinkUUID.notification)
-        }
+        sendNotification(wearNotif)
 
         // Record in the in-memory list for the UI.
         let item = ForwardedNotificationItem(
@@ -208,10 +211,7 @@ final class NotificationForwarder: NSObject {
             timestampMs: UInt64(timestampMs),
             replyChoices: replyChoices
         )
-        let payload = ProtoCodec.encodeWearNotification(wearNotif)
-        Task { @MainActor in
-            await ble.gatt?.write(payload, to: WearLinkUUID.notification)
-        }
+        sendNotification(wearNotif)
 
         // Clear the pending flag and all associated keys only AFTER the BLE
         // write has been issued, so a write failure does not lose the data.

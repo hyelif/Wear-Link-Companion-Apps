@@ -15,6 +15,7 @@ final class HealthManager {
     private(set) var lastSteps: Int?
     private(set) var lastCalories: Double?
     private(set) var lastDistance: Double?
+    private(set) var lastSleep: Double?
     /// Timestamp of the most recent `HealthFrame` received.
     private(set) var lastUpdate: Date?
     /// Sequence number of the most recent frame (for ordering).
@@ -53,13 +54,20 @@ final class HealthManager {
             switch sample.type {
             case .heartRateBpm:
                 lastHeartRate = sample.value
+                print("[Health] HeartRate: \(sample.value) BPM")
             case .steps:
                 lastSteps = Int(sample.value)
+                print("[Health] Steps: \(Int(sample.value))")
             case .calories:
                 lastCalories = sample.value
+                print("[Health] Calories: \(sample.value) kcal")
             case .distanceMeters:
                 lastDistance = sample.value
-            case .spo2Percent, .hrvMs, .sleep, .typeUnspecified:
+                print("[Health] Distance: \(sample.value) m")
+            case .sleep:
+                lastSleep = sample.value
+                print("[Health] Sleep: \(sample.value) min")
+            case .spo2Percent, .hrvMs, .typeUnspecified:
                 break
             }
         }
@@ -71,6 +79,7 @@ final class HealthManager {
         lastSteps = nil
         lastCalories = nil
         lastDistance = nil
+        lastSleep = nil
         lastUpdate = nil
         lastSequence = 0
     }
